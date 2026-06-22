@@ -37,7 +37,7 @@ class RisultatoParlato:
     testo_grezzo: str        # ciò che ha prodotto l'LLM
     testo_detto: str         # ciò che Emilio dice davvero (post-supervisore)
     report: Report           # esito dell'analisi del supervisore
-    rigenerazioni: int       # quante volte si è chiesto all'LLM di riformulare
+    span_censura: list[tuple[int, int]]  # intervalli (caratteri) coperti dal bip
     censura_applicata: bool
     latenza_llm: float = 0.0           # secondi per generare la risposta
     voce: SpeechMetrics | None = None  # metriche di latenza della voce
@@ -60,6 +60,7 @@ class EmilioAgent:
         self.moderator = moderator or Moderator(
             censor_style=self.config.censor_style,
             enabled=self.config.moderation_enabled,
+            bip_marker=self.config.bip_marker,
         )
         self.voci = voci or build_voice_manager(self.config)
         self.mover = mover or build_mover(self.config)
@@ -90,56 +91,53 @@ class EmilioAgent:
     # -- parlato -----------------------------------------------------------
 
     def genera(self, input_utente: str) -> RisultatoParlato:
-        """Esegue tutta la pipeline ma SENZA pronunciare (utile per test/log)."""
+        """Esegue tutta la pipeline ma SENZA pronunciare (utile per test/log).
+
+        Il cervello NON riformula: si analizza il testo grezzo e si calcolano
+        gli span da coprire col BIP sull'audio (vedi `di`/`parla`).
+        """
         t0 = time.perf_counter()
         testo_grezzo = self.brain.reply(input_utente)
         latenza_llm = time.perf_counter() - t0
 
-        rigenerazioni = 0
-        testo = testo_grezzo
-        report = self.moderator.review(testo)
-
-        # Se è attiva la censura e c'è una bestemmia, prova a far riformulare
-        # all'LLM (così la frase resta sensata invece di essere "bippata").
-        while (
-            self.moderator.enabled
-            and report.has_blasphemy
-            and rigenerazioni < self.config.max_regen
-        ):
-            testo = self.brain.revise(motivo=report.summary())
-            report = self.moderator.review(testo)
-            rigenerazioni += 1
-
-        # Passaggio finale e obbligato dal supervisore.
-        testo_detto, report, censura = self.moderator.process(testo)
+        report = self.moderator.review(testo_grezzo)
+        span = self.moderator.span_censura(report)        # vuoto se censura OFF
+        censura = bool(span)
+        testo_detto = self.moderator.testo_con_bip(testo_grezzo, report)
 
         return RisultatoParlato(
             input_utente=input_utente,
             testo_grezzo=testo_grezzo,
             testo_detto=testo_detto,
             report=report,
-            rigenerazioni=rigenerazioni,
+            span_censura=span,
             censura_applicata=censura,
             latenza_llm=latenza_llm,
         )
 
     def parla(self, input_utente: str) -> RisultatoParlato:
-        """Pipeline completa: genera, supervisiona e fa parlare Emilio."""
+        """Pipeline completa: genera e fa parlare Emilio (col bip dove serve)."""
         ris = self.genera(input_utente)
-        ris.voce = self.di(ris.testo_detto)
+        # Si pronuncia il testo GREZZO: la voce sintetizza la frase naturale e
+        # copre con un bip solo gli intervalli sporchi (span_censura).
+        ris.voce = self._pronuncia(ris.testo_grezzo, ris.span_censura)
         return ris
 
     def di(self, testo: str) -> SpeechMetrics:
-        """Pronuncia un testo arbitrario (passando comunque dal supervisore).
+        """Pronuncia un testo arbitrario, bippando le parti sporche sull'audio.
 
         Restituisce le metriche di latenza della voce.
         """
-        testo_detto, _report, _censura = self.moderator.process(testo)
+        report = self.moderator.review(testo)
+        span = self.moderator.span_censura(report)   # vuoto se censura OFF
+        return self._pronuncia(testo, span)
+
+    def _pronuncia(self, testo: str, span: list[tuple[int, int]]) -> SpeechMetrics:
         try:
             self.mover.move("bocca")          # muove la bocca mentre parla
         except Exception:
             pass
-        return self.voci.say(testo_detto)
+        return self.voci.say(testo, bleep_spans=span)
 
     # -- movimento manuale -------------------------------------------------
 

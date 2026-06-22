@@ -19,11 +19,14 @@ modulo si limita a pronunciarlo.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+
+from . import audio_bip
 
 
 # ---------------------------------------------------------------------------
@@ -101,17 +104,22 @@ def default_profiles(config) -> list[VoiceProfile]:
 
 class Speaker(ABC):
     @abstractmethod
-    def say(self, text: str) -> SpeechMetrics:
+    def say(self, text: str, bleep_spans: list[tuple[int, int]] | None = None) -> SpeechMetrics:
+        """Pronuncia `text`. Se `bleep_spans` è valorizzato, copre quegli
+        intervalli di CARATTERE con un BIP sull'audio (censura amministratore)."""
         ...
 
 
 class MockSpeaker(Speaker):
-    def __init__(self, profilo: str = "mock"):
+    def __init__(self, profilo: str = "mock", bip_marker: str = "[BIP]"):
         self.profilo = profilo
+        self.bip_marker = bip_marker
 
-    def say(self, text: str) -> SpeechMetrics:
+    def say(self, text: str, bleep_spans: list[tuple[int, int]] | None = None) -> SpeechMetrics:
         t0 = time.perf_counter()
-        print(f"🔊 [Emilio/{self.profilo}] {text}")
+        mostrato = (audio_bip.applica_span(text, bleep_spans, self.bip_marker)
+                    if bleep_spans else text)
+        print(f"🔊 [Emilio/{self.profilo}] {mostrato}")
         return SpeechMetrics("mock", self.profilo, None, time.perf_counter() - t0, len(text))
 
 
@@ -126,9 +134,12 @@ class Pyttsx3Speaker(Speaker):
                 self._engine.setProperty("voice", voice.id)
                 break
 
-    def say(self, text: str) -> SpeechMetrics:
+    def say(self, text: str, bleep_spans: list[tuple[int, int]] | None = None) -> SpeechMetrics:
         t0 = time.perf_counter()
-        self._engine.say(text)
+        # TTS offline senza timestamp: ripiego "sicuro" — la parolaccia non viene
+        # pronunciata (sostituita da "bip" parlato). Approssima il bip audio.
+        da_dire = audio_bip.testo_sicuro(text, bleep_spans) if bleep_spans else text
+        self._engine.say(da_dire)
         self._engine.runAndWait()
         return SpeechMetrics("pyttsx3", self.profilo, None, time.perf_counter() - t0, len(text))
 
@@ -171,7 +182,8 @@ class ElevenLabsSpeaker(Speaker):
 
     BASE = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
 
-    def __init__(self, profile: VoiceProfile, api_key: str, audio_out: str = "emilio_voce.mp3"):
+    def __init__(self, profile: VoiceProfile, api_key: str,
+                 audio_out: str = "emilio_voce.mp3", bip_dir: str | None = None):
         if not api_key:
             raise RuntimeError("ELEVENLABS_API_KEY mancante.")
         if not profile.voice_id:
@@ -181,6 +193,7 @@ class ElevenLabsSpeaker(Speaker):
         self.p = profile
         self.api_key = api_key
         self.audio_out = audio_out
+        self.bip_dir = bip_dir
 
     def _payload(self, text: str) -> dict:
         return {
@@ -194,7 +207,13 @@ class ElevenLabsSpeaker(Speaker):
             },
         }
 
-    def say(self, text: str) -> SpeechMetrics:
+    def say(self, text: str, bleep_spans: list[tuple[int, int]] | None = None) -> SpeechMetrics:
+        if bleep_spans:
+            return self._say_censura(text, bleep_spans)
+        return self._say_diretto(text)
+
+    def _say_diretto(self, text: str) -> SpeechMetrics:
+        """Sintesi normale: streaming a bassa latenza, o file di ripiego."""
         import requests
 
         headers = {"xi-api-key": self.api_key, "content-type": "application/json"}
@@ -241,6 +260,54 @@ class ElevenLabsSpeaker(Speaker):
             print(f"🔊 [Emilio] (audio salvato in {self.audio_out}, nessun player)")
         return SpeechMetrics("elevenlabs", self.p.name, ttfb,
                              time.perf_counter() - t0, len(text))
+
+    def _say_censura(self, text: str, bleep_spans: list[tuple[int, int]]) -> SpeechMetrics:
+        """Sintesi CON timestamp + BIP sugli intervalli sporchi.
+
+        Chiede a ElevenLabs l'audio con l'allineamento carattere→tempo
+        (endpoint with-timestamps), mappa gli span sporchi su intervalli di
+        tempo e ci sovrappone il file BIP via ffmpeg. Se qualcosa va storto,
+        ripiego SICURO: risintetizza il testo con "bip" parlato, così la
+        parolaccia non viene mai udita.
+        """
+        import base64
+        import requests
+
+        headers = {"xi-api-key": self.api_key, "content-type": "application/json"}
+        url = self.BASE.format(voice_id=self.p.voice_id) + "/with-timestamps"
+        params = {"output_format": self.p.output_format}
+        t0 = time.perf_counter()
+        try:
+            resp = requests.post(url, headers=headers, params=params,
+                                 json=self._payload(text), timeout=30)
+            resp.raise_for_status()
+            ttfb = time.perf_counter() - t0
+            data = resp.json()
+            audio = base64.b64decode(data["audio_base64"])
+            align = data.get("alignment") or {}
+            cs = align.get("character_start_times_seconds") or []
+            ce = align.get("character_end_times_seconds") or []
+
+            grezzo = self.audio_out + ".raw"
+            with open(grezzo, "wb") as f:
+                f.write(audio)
+
+            intervalli = audio_bip.intervalli_da_allineamento(bleep_spans, cs, ce)
+            beep = audio_bip.scegli_beep(self.bip_dir)
+            if audio_bip.applica_bip(grezzo, intervalli, beep, self.audio_out):
+                try:
+                    os.remove(grezzo)
+                except OSError:
+                    pass
+                if not _play_file(self.audio_out):
+                    print(f"🔊 [Emilio] (audio bippato salvato in {self.audio_out}, nessun player)")
+                return SpeechMetrics("elevenlabs", self.p.name, ttfb,
+                                     time.perf_counter() - t0, len(text))
+        except Exception as e:  # pragma: no cover - dipende dalla rete/ffmpeg
+            print(f"⚠️  Bip audio non riuscito ({e}); ripiego sicuro senza turpiloquio.")
+
+        # Ripiego sicuro: niente parolaccia udibile.
+        return self._say_diretto(audio_bip.testo_sicuro(text, bleep_spans))
 
 
 # ---------------------------------------------------------------------------
@@ -302,13 +369,15 @@ class VoiceManager:
                 prof,
                 api_key=self.config.elevenlabs_api_key or "",
                 audio_out=self.config.audio_out,
+                bip_dir=getattr(self.config, "bip_dir", None),
             )
         if p.backend == "pyttsx3":
             return Pyttsx3Speaker(profilo=p.name, language=self.config.tts_language)
-        return MockSpeaker(profilo=p.name)
+        return MockSpeaker(profilo=p.name,
+                           bip_marker=getattr(self.config, "bip_marker", "[BIP]"))
 
-    def say(self, text: str) -> SpeechMetrics:
-        return self.speaker.say(text)
+    def say(self, text: str, bleep_spans: list[tuple[int, int]] | None = None) -> SpeechMetrics:
+        return self.speaker.say(text, bleep_spans)
 
 
 def list_elevenlabs_voices(api_key: str) -> list[dict]:

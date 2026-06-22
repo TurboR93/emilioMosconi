@@ -13,4 +13,6 @@ from .agent import EmilioAgent, RisultatoParlato
 from .config import EmilioConfig
 from .persona import Persona
 
-__all__ = ["EmilioAgent", "RisultatoParlato", "EmilioConfig", "Persona"]
+__version__ = "0.1.0"
+
+__all__ = ["EmilioAgent", "RisultatoParlato", "EmilioConfig", "Persona", "__version__"]

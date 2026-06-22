@@ -25,14 +25,18 @@ class EmilioConfig:
     max_tokens: int = int(os.environ.get("EMILIO_MAX_TOKENS", "800"))
     effort: str = os.environ.get("EMILIO_EFFORT", "medium")  # low|medium|high
 
-    # --- Supervisione / censura ----------------------------------------
+    # --- Supervisione / censura (BIP sull'audio) -----------------------
     # Attivabile/disattivabile dall'amministratore (anche a runtime).
+    # Modello: il cervello NON riformula; il supervisore individua le parti
+    # sporche e la voce le copre con un BIP. Disattivando la supervisione,
+    # Emilio dice l'audio grezzo (nessun bip).
     moderation_enabled: bool = _env_bool("EMILIO_MODERATION", True)
-    censor_style: str = os.environ.get("EMILIO_CENSOR_STYLE", "mask")  # mask|bleep|euphemism
+    censor_style: str = os.environ.get("EMILIO_CENSOR_STYLE", "mask")  # mask|bleep|euphemism (resa testuale)
     moderate_input: bool = _env_bool("EMILIO_MODERATE_INPUT", True)
-    # Quante volte richiedere all'LLM di riformulare se emerge una bestemmia,
-    # prima di ripiegare sulla sanificazione automatica.
-    max_regen: int = int(os.environ.get("EMILIO_MAX_REGEN", "2"))
+    # Marcatore con cui il bip appare in console/log; cartella dei file BIP
+    # (vuota = quelli pacchettizzati in assets/beeps/).
+    bip_marker: str = os.environ.get("EMILIO_BIP_MARKER", "[BIP]")
+    bip_dir: str | None = os.environ.get("EMILIO_BIP_DIR")
 
     # --- Voce (TTS) -----------------------------------------------------
     # Profilo voce attivo (vedi speech.default_profiles): mock | offline |

@@ -51,9 +51,9 @@ Due "cervelli" lavorano in cascata:
                  │   (base LLM)                               │
                  │        │                                   │
                  │        ▼                                   │
-                 │   moderation/      →  analisi + (eventuale)│
-                 │   (SUPERVISORE)       riformulazione +     │
-                 │        │              sanificazione        │
+                 │   moderation/      →  individua le parti   │
+                 │   (SUPERVISORE)       sporche (span)       │
+                 │        │              → BIP sull'audio     │
                  │        ▼                                   │
                  │   speech.py        →  voce (TTS realistico)│
                  │   actuators.py     →  movimento bocca/corpo│
@@ -127,15 +127,23 @@ di religione: `credo in Dio`, `madonna che bello`, `una statua di Cristo`,
 `addio amici` → tutte lasciate intatte. Anche i moccoli "puliti" come
 `porca miseria` non sono trattati come bestemmie.
 
-### 5.4 Cosa fa quando trova qualcosa
+### 5.4 Cosa fa quando trova qualcosa: il BIP sull'audio
 
-1. Se è attiva la censura e c'è una **bestemmia**, prima **chiede all'LLM di
-   riformulare** la frase (così resta sensata invece di essere "bippata").
-   Numero di tentativi configurabile (`EMILIO_MAX_REGEN`, default 2).
-2. Comunque, come passaggio finale, **ripulisce** il testo:
-   - **parolacce** → mascherate (`mask`: `c***o`), oppure `[bip]`, oppure `[censura]`;
-   - **bestemmie** → sostituite con un'**interiezione innocua** ("santo cielo",
-     "mannaggia", ...). (Mascherarne solo una parte lascerebbe leggibile l'offesa.)
+**Niente riformulazione dell'LLM.** Il cervello dice la sua battuta naturale; il
+supervisore restituisce gli **span di carattere** delle parti sporche
+(`Moderator.span_censura`) e la **voce li copre con un BIP sull'audio**:
+
+1. la frase viene sintetizzata **con i timestamp** (ElevenLabs *with-timestamps*),
+   che danno l'allineamento carattere→tempo;
+2. gli span sporchi diventano **intervalli di tempo** (`audio_bip.intervalli_da_allineamento`);
+3. `ffmpeg` muta quegli intervalli e ci **sovrappone un file BIP** preso da una
+   lista (`assets/beeps/`, per ora il classico bip — `audio_bip.applica_bip`).
+
+In console/log le parti coperte appaiono come `[BIP]` (`EMILIO_BIP_MARKER`). Se il
+bip audio non riesce, **ripiego sicuro**: si risintetizza il testo con "bip"
+parlato, così la parolaccia non viene **mai** udita. Le voci `mock`/`offline`
+approssimano il bip. (La vecchia resa testuale `mask`/`bleep`/`euphemism` resta
+disponibile come `sanitize()` per usi non audio, ma non è più la via del parlato.)
 
 ### 5.5 Controllo dell'amministratore (R7, R8)
 
@@ -146,10 +154,11 @@ disattivabile a runtime**:
 - da console: `/censura on | off | stato`;
 - all'avvio: `EMILIO_MODERATION=0|1`.
 
-Punto unico di passaggio: `Moderator.process(testo) -> (testo, report, applicata)`.
-Quando è **disattivata**, il testo passa **invariato** ma il supervisore
-**analizza comunque** e popola il `report`: così l'amministratore vede nei log
-cosa *sarebbe* stato censurato, senza alcun effetto sull'output.
+Quando è **disattivata**, non si calcola alcuno span da bippare ed Emilio dice
+l'audio **grezzo**; ma il supervisore **analizza comunque** (`Moderator.review`)
+e popola il `report`: così l'amministratore vede nei log cosa *sarebbe* stato
+bippato, senza alcun effetto sull'audio. (Il vecchio `Moderator.process()` resta
+per la resa testuale, non più usato nella via del parlato.)
 
 ### 5.6 Ampliare gli elenchi
 
@@ -189,8 +198,8 @@ prima linea di difesa). Da qui si costruisce il **system prompt** dell'LLM.
   - modello di default: `claude-opus-4-8`
   - usa *adaptive thinking* + parametro *effort*
   - mantiene la **memoria della conversazione**
-  - `revise()` per la riformulazione richiesta dal supervisore (usa un messaggio
-    di sistema a metà conversazione, supportato da Opus 4.8)
+  - `revise()` esiste ancora ma **non è più usato** dalla pipeline (la censura
+    ora agisce sull'audio col BIP, senza chiedere all'LLM di riformulare)
 
 > Nota latenza: per il dialogo dal vivo su hardware leggero, se la latenza di
 > Opus risultasse alta si può passare a un modello più rapido (es.
@@ -284,10 +293,11 @@ l'audio; per la seriale si usa il backend `mock` finché non c'è hardware.
 | `EMILIO_MODEL` | `claude-opus-4-8` | modello LLM |
 | `EMILIO_MAX_TOKENS` | `800` | lunghezza massima risposta |
 | `EMILIO_EFFORT` | `medium` | `low`/`medium`/`high` |
-| `EMILIO_MODERATION` | `1` | supervisione attiva all'avvio |
-| `EMILIO_CENSOR_STYLE` | `mask` | `mask`/`bleep`/`euphemism` |
+| `EMILIO_MODERATION` | `1` | supervisione (BIP) attiva all'avvio — disattivabile da admin |
+| `EMILIO_BIP_MARKER` | `[BIP]` | come appare il bip in console/log |
+| `EMILIO_BIP_DIR` | (pacchettizzati) | cartella dei file BIP (lista) |
+| `EMILIO_CENSOR_STYLE` | `mask` | resa testuale legacy (`mask`/`bleep`/`euphemism`) |
 | `EMILIO_MODERATE_INPUT` | `1` | analizza anche l'input utente (log) |
-| `EMILIO_MAX_REGEN` | `2` | tentativi di riformulazione su bestemmia |
 | `EMILIO_VOICE` | (da `EMILIO_TTS`) | profilo voce: `mock`/`offline`/`veloce`/`realistico`/`espressivo` |
 | `EMILIO_TTS` | `mock` | ripiego se `EMILIO_VOICE` non impostato |
 | `EMILIO_TTS_LANG` | `it` | lingua TTS |

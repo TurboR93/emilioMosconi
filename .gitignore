@@ -9,6 +9,21 @@ venv/
 ENV/
 .venv
 
+# Packaging / build
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Test / tooling cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Audio generato da Emilio (TTS)
+emilio_voce.mp3
+*.mp3
+
 # Database
 *.db
 *.sqlite

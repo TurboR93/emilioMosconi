@@ -133,9 +133,9 @@ def main(argv: list[str] | None = None) -> int:
             ris = agent.parla(linea)
             voce = f" | {ris.voce}" if ris.voce else ""
             print(f"   [latenza LLM: {ris.latenza_llm*1000:.0f}ms{voce}]")
-            if ris.censura_applicata or ris.rigenerazioni:
+            if ris.censura_applicata:
                 print(f"   [supervisore: {ris.report.summary()} | "
-                      f"rigenerazioni: {ris.rigenerazioni}]")
+                      f"bip applicati: {len(ris.span_censura)}]")
 
     print("Alla prossima!")
     return 0

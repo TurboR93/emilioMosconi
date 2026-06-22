@@ -133,14 +133,16 @@ class Moderator:
 
     def __init__(
         self,
-        censor_style: str = "mask",          # mask | bleep | euphemism
+        censor_style: str = "mask",          # mask | bleep | euphemism (testo)
         interjections: list[str] | None = None,
         rng: random.Random | None = None,
         enabled: bool = True,
+        bip_marker: str = "[BIP]",           # come si mostra il bip nei log/console
     ):
         self.censor_style = censor_style
         self.interjections = interjections or lexicon.INTERJECTIONS
         self._rng = rng or random.Random()
+        self.bip_marker = bip_marker
         # Interruttore controllabile dall'amministratore a runtime.
         # Quando è False il moderatore analizza comunque (per i log) ma NON
         # modifica il testo: la censura è bypassata in modo pulito.
@@ -177,6 +179,30 @@ class Moderator:
 
     def is_clean(self, text: str) -> bool:
         return self.review(text).clean
+
+    # -- censura via BIP (audio) -------------------------------------------
+    # Modello attuale: il cervello NON riformula. Il supervisore individua gli
+    # span "sporchi"; la voce li copre con un bip sull'audio (vedi speech.py +
+    # audio_bip.py). Qui forniamo gli span e una resa testuale per log/console.
+
+    def span_censura(self, report: Report) -> list[tuple[int, int]]:
+        """Intervalli di CARATTERE da coprire col bip (vuoto se non `enabled`)."""
+        if not self.enabled:
+            return []
+        return [(m.start, m.end) for m in report.matches]
+
+    def testo_con_bip(self, text: str, report: Report | None = None) -> str:
+        """Testo con le parti sporche sostituite dal marcatore del bip.
+
+        È la versione da mostrare/loggare (l'audio reale viene bippato a parte).
+        """
+        report = report or self.review(text)
+        if not self.enabled or report.clean:
+            return text
+        out = text
+        for m in sorted(report.matches, key=lambda x: x.start, reverse=True):
+            out = out[:m.start] + self.bip_marker + out[m.end:]
+        return out
 
     # -- punto di passaggio unico nella pipeline ---------------------------
 
