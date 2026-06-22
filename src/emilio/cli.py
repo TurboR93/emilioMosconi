@@ -40,8 +40,13 @@ AIUTO = __doc__
 
 def _rispondi(agent: EmilioAgent, testo: str) -> None:
     """Fa rispondere Emilio con la pipeline attiva (streaming o blocco) e
-    stampa il riepilogo di emozione/latenza/censura."""
-    ris = agent.rispondi(testo)
+    stampa il riepilogo di emozione/latenza/censura. Un errore del cervello
+    (Ollama spento, modello non scaricato, rete) non deve far cadere la sessione."""
+    try:
+        ris = agent.rispondi(testo)
+    except Exception as e:
+        print(f"⚠️  {e}")
+        return
     voce = f" | {ris.voce}" if ris.voce else ""
     etichetta = "TTFT" if agent.streaming else "latenza LLM"
     print(f"   [emozione: {ris.emozione} | {etichetta}: {ris.latenza_llm*1000:.0f}ms{voce}]")
@@ -203,7 +208,13 @@ def main(argv: list[str] | None = None) -> int:
     config = EmilioConfig()
     agent = EmilioAgent(config)
 
-    cervello = config.llm_backend or ("claude" if config.use_real_llm else "mock")
+    backend = config.llm_backend or ("claude" if config.use_real_llm else "mock")
+    if backend == "local":
+        cervello = f"local ({config.local_llm_model})"
+    elif backend == "claude":
+        cervello = f"claude ({config.model})"
+    else:
+        cervello = backend
     print("=== Emilio è in linea ===")
     print(f"Cervello: {cervello} | Voce: {agent.voce_attiva} | "
           f"Occhi: {config.eyes_backend} | Ascolto: {config.stt_backend} | "

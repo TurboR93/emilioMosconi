@@ -57,18 +57,31 @@ class TestLogicaSpan(unittest.TestCase):
 
 
 class TestModeratorBip(unittest.TestCase):
-    def test_span_e_testo_con_bip(self):
+    def test_bestemmia_bippata(self):
+        mod = Moderator()
+        rep = mod.review("porco dio che roba")
+        self.assertTrue(mod.span_censura(rep))                 # la bestemmia si bippa
+        self.assertIn("[BIP]", mod.testo_con_bip("porco dio che roba", rep))
+
+    def test_parolaccia_non_bippata(self):
+        # solo_bestemmie (default): le parolacce restano in chiaro, ma rilevate
         mod = Moderator()
         rep = mod.review("sei uno stronzo")
-        self.assertTrue(mod.span_censura(rep))                 # c'è qualcosa da bippare
-        self.assertIn("[BIP]", mod.testo_con_bip("sei uno stronzo", rep))
+        self.assertEqual(mod.span_censura(rep), [])
+        self.assertNotIn("[BIP]", mod.testo_con_bip("sei uno stronzo", rep))
+        self.assertTrue(rep.has_profanity)                     # rilevata (log/umore)
+
+    def test_solo_bestemmie_disattivabile(self):
+        # spegnendo solo_bestemmie torna a bippare anche le parolacce
+        mod = Moderator(solo_bestemmie=False)
+        self.assertTrue(mod.span_censura(mod.review("sei uno stronzo")))
 
     def test_disattivato_niente_span(self):
         mod = Moderator(enabled=False)
-        rep = mod.review("sei uno stronzo")
+        rep = mod.review("porco dio")
         self.assertEqual(mod.span_censura(rep), [])            # admin OFF -> niente bip
-        self.assertEqual(mod.testo_con_bip("sei uno stronzo", rep), "sei uno stronzo")
-        self.assertTrue(rep.has_profanity)                     # ma il report c'è (log)
+        self.assertEqual(mod.testo_con_bip("porco dio", rep), "porco dio")
+        self.assertTrue(rep.has_blasphemy)                     # ma il report c'è (log)
 
     def test_pulito_niente_span(self):
         mod = Moderator()

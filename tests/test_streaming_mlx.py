@@ -11,7 +11,7 @@ from emilio.agent import (
 )
 from emilio.ascolto import (
     MlxAscoltatore, MockAscoltatore, WhisperAscoltatore, _risolvi_repo_mlx,
-    _vad_stato, build_ascoltatore,
+    _scarta_allucinazione, _vad_stato, build_ascoltatore,
 )
 from emilio.brain import Brain, MockBrain
 from emilio.config import EmilioConfig
@@ -161,6 +161,20 @@ class TestVad(unittest.TestCase):
     def test_silenzio_iniziale_non_parte(self):
         self.assertEqual(_vad_stato(100, 500, False, 0.0, 0.03, 0.8),
                          (False, 0.0, False))
+
+
+class TestFiltroTrascrizione(unittest.TestCase):
+    def test_loop_degenere_scartato(self):
+        # tipico loop di Whisper sul rumore: tante parole, pochissime distinte
+        spazzatura = "buon buon " + "bu " * 50
+        self.assertEqual(_scarta_allucinazione(spazzatura), "")
+
+    def test_allucinazione_sottotitoli_scartata(self):
+        self.assertEqual(_scarta_allucinazione("Sottotitoli e revisione a cura di..."), "")
+
+    def test_frase_buona_passa(self):
+        frase = "ciao Emilio come stai oggi tutto bene a casa"
+        self.assertEqual(_scarta_allucinazione(frase), frase)
 
 
 class TestBackendAscolto(unittest.TestCase):

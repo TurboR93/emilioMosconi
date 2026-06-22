@@ -142,6 +142,7 @@ class EmilioAgent:
             censor_style=self.config.censor_style,
             enabled=self.config.moderation_enabled,
             bip_marker=self.config.bip_marker,
+            solo_bestemmie=getattr(self.config, "censura_solo_bestemmie", True),
         )
         self.voci = voci or build_voice_manager(self.config)
         self.mover = mover or build_mover(self.config)

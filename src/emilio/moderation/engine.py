@@ -138,11 +138,13 @@ class Moderator:
         rng: random.Random | None = None,
         enabled: bool = True,
         bip_marker: str = "[BIP]",           # come si mostra il bip nei log/console
+        solo_bestemmie: bool = True,         # bippa SOLO le bestemmie, non le parolacce
     ):
         self.censor_style = censor_style
         self.interjections = interjections or lexicon.INTERJECTIONS
         self._rng = rng or random.Random()
         self.bip_marker = bip_marker
+        self.solo_bestemmie = solo_bestemmie
         # Interruttore controllabile dall'amministratore a runtime.
         # Quando è False il moderatore analizza comunque (per i log) ma NON
         # modifica il testo: la censura è bypassata in modo pulito.
@@ -213,6 +215,9 @@ class Moderator:
             return []
         spans: list[tuple[int, int]] = []
         for m in report.matches:
+            # con solo_bestemmie le parolacce NON vengono bippate (restano in chiaro)
+            if self.solo_bestemmie and m.category != BLASPHEMY:
+                continue
             spans.extend(self._riduci_match(m))
         return spans
 

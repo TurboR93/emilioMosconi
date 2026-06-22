@@ -23,6 +23,9 @@ intercetta cazzo, cazzi, cazzata, cazzone.
 # (radice/parola, severità, inflect)
 PROFANITY: list[tuple[str, int, bool]] = [
     # --- volgarità forti ---
+    # NB: queste sono RADICI, non parole troncate! Con inflect=True il motore
+    # aggiunge da solo le desinenze ("cazz" -> cazzo/cazzi/cazzata/cazzone).
+    # Se le "completi" (es. "cazzo") perdi tutte le altre forme.
     ("cazz", 3, True),          # cazzo, cazzi, cazzata, cazzone...
     ("vaffancul", 3, True),     # vaffanculo
     ("vaffanbagn", 2, True),    # vaffanbagno (eufemismo)
@@ -42,9 +45,9 @@ PROFANITY: list[tuple[str, int, bool]] = [
     ("ricchion", 3, True),
     ("froci", 3, True),         # slur
     # --- volgarità medie ---
-    ("stronz", 2, True),
+    ("stronz", 2, True),        # stronzo, stronza, stronzata
     ("merd", 2, True),
-    ("coglion", 2, True),
+    ("coglion", 2, True),       # coglione, coglioni, coglionata
     ("mona", 2, False),         # veneto: "va' in mona" (figa / scemo)
     ("mone", 2, False),
     ("zoccol", 2, True),

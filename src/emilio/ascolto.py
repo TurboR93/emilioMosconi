@@ -40,9 +40,14 @@ _ALLUCINAZIONI = (
 
 
 def _scarta_allucinazione(testo: str) -> str:
-    """Vuoto se il testo è una tipica allucinazione da silenzio, altrimenti il testo."""
+    """Vuoto se il testo è spazzatura (allucinazione da silenzio o loop degenere)."""
     low = testo.lower()
     if any(a in low for a in _ALLUCINAZIONI):
+        return ""
+    # loop degenere tipico di Whisper sul rumore ("buon bu bu bu bu..."):
+    # tante parole ma pochissime distinte -> scarta.
+    parole = low.split()
+    if len(parole) >= 8 and len(set(parole)) / len(parole) < 0.25:
         return ""
     return testo
 
@@ -259,7 +264,8 @@ class WhisperAscoltatore(AscoltatoreMic):
         """`vad_filter` salta i tratti di silenzio: migliora l'accuratezza ed
         evita le tipiche allucinazioni di Whisper quando non parli."""
         model = self._carica()
-        segmenti, _ = model.transcribe(wav, language=self.lingua, vad_filter=True)
+        segmenti, _ = model.transcribe(wav, language=self.lingua, vad_filter=True,
+                                       condition_on_previous_text=False)
         testo = " ".join(s.text for s in segmenti).strip()
         return _scarta_allucinazione(testo)
 
@@ -318,7 +324,9 @@ class MlxAscoltatore(AscoltatoreMic):
             raise RuntimeError(
                 "mlx-whisper non installato. Esegui: pip install -e \".[listen-mlx]\""
             ) from None
-        res = mlx_whisper.transcribe(wav, path_or_hf_repo=self.repo, language=self.lingua)
+        res = mlx_whisper.transcribe(wav, path_or_hf_repo=self.repo,
+                                     language=self.lingua,
+                                     condition_on_previous_text=False)
         return _scarta_allucinazione((res.get("text") or "").strip())
 
 

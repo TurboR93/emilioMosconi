@@ -26,6 +26,10 @@ class TestSelezioneCervello(unittest.TestCase):
         self.assertEqual(b.model, "gemma4:12b")
         self.assertIn("11434", b.base_url)
         self.assertFalse(b.think)   # thinking OFF di default (bassa latenza)
+        # l'__init__ DEVE inizializzare memoria e system prompt (regressione:
+        # un metodo inserito a metà __init__ li aveva resi orfani)
+        self.assertEqual(b._messages, [])
+        self.assertTrue(b._system)
 
     def test_use_real_llm_retrocompat_resta_mock_se_non_anthropic(self):
         # EMILIO_LLM vuoto + use_real_llm False => mock (non tocca la rete)

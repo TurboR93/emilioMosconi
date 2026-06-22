@@ -39,6 +39,10 @@ class EmilioConfig:
     # default lo scarica dopo 5 min: col dialogo dal vivo conviene tenerlo caldo
     # ("30m", oppure "-1" = per sempre) così non si paga il reload a ogni pausa.
     local_llm_keep_alive: str = os.environ.get("EMILIO_LOCAL_KEEP_ALIVE", "30m")
+    # Campionamento del modello locale: temperatura (varietà) e penalità di
+    # ripetizione (evita che un modello piccolo pappagalli lo stesso moccolo).
+    local_llm_temp: float = float(os.environ.get("EMILIO_LOCAL_TEMP", "0.85"))
+    local_llm_repeat_penalty: float = float(os.environ.get("EMILIO_LOCAL_REPEAT_PENALTY", "1.3"))
     # Pipeline del parlato: streaming (Emilio parla la PRIMA frase appena pronta,
     # mentre l'LLM genera ancora -> latenza percepita molto più bassa) oppure la
     # vecchia "a blocco unico" (genera tutto, poi parla). Scelta all'avvio:
@@ -53,6 +57,10 @@ class EmilioConfig:
     moderation_enabled: bool = _env_bool("EMILIO_MODERATION", True)
     censor_style: str = os.environ.get("EMILIO_CENSOR_STYLE", "mask")  # mask|bleep|euphemism (resa testuale)
     moderate_input: bool = _env_bool("EMILIO_MODERATE_INPUT", True)
+    # Bippa SOLO le bestemmie (religiose), non le parolacce: Emilio può dire
+    # parolacce in chiaro, mentre le bestemmie restano coperte dal BIP. Le
+    # parolacce vengono comunque rilevate (log, stato d'animo), solo non bippate.
+    censura_solo_bestemmie: bool = _env_bool("EMILIO_BIP_SOLO_BESTEMMIE", True)
     # Marcatore con cui il bip appare in console/log; cartella dei file BIP
     # (vuota = quelli pacchettizzati in assets/beeps/).
     bip_marker: str = os.environ.get("EMILIO_BIP_MARKER", "[BIP]")

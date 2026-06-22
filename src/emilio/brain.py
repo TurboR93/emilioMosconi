@@ -78,6 +78,7 @@ class MockBrain(Brain):
         "[arrabbiato] Senti, madonna ladra, mi sa che, dio boia, te vol proprio andar in mona!",
         "[arrabbiato] Ma cossa, ostia, te se messo in testa, dio porco, brutto coglione che no te xe altro?!",
         "[arrabbiato] Adesso, porca madonna, basta, dio can, che te spacco i bulloni, va' in mona!",
+        "[arrabbiato] Sta' attento, dio can, che te dae tante sberle con tutte due le mani finché diventano dispari!",
     ]
 
     # Marcatori (sottostringa) che indicano insulto o contraddizione nell'input.
@@ -213,6 +214,8 @@ class LocalBrain(Brain):
         think: bool = False,
         api_key: str = "",
         keep_alive: str = "30m",
+        temperature: float = 0.85,
+        repeat_penalty: float = 1.3,
     ):
         self.persona = persona or Persona()
         self.base_url = base_url.rstrip("/")
@@ -221,8 +224,28 @@ class LocalBrain(Brain):
         self.think = think
         self.api_key = api_key
         self.keep_alive = keep_alive
+        self.temperature = temperature
+        self.repeat_penalty = repeat_penalty
         self._system = self.persona.system_prompt()
         self._messages: list[dict] = []
+
+    def _options(self) -> dict:
+        # repeat_penalty + repeat_last_n: scoraggiano i modelli piccoli dal
+        # ripetere lo stesso moccolo; temperature alza la varietà.
+        return {
+            "num_predict": self.max_tokens,
+            "temperature": self.temperature,
+            "repeat_penalty": self.repeat_penalty,
+            "repeat_last_n": 256,
+        }
+
+    def _errore_connessione(self) -> str:
+        return (f"Ollama non risponde su {self.base_url}. "
+                f"Avvialo con:  ollama serve")
+
+    def _errore_modello(self) -> str:
+        return (f"Modello locale '{self.model}' non disponibile su Ollama. "
+                f"Scaricalo con:  ollama pull {self.model}")
 
     def _chat(self) -> str:
         import requests  # import pigro: serve solo col cervello locale
@@ -234,13 +257,18 @@ class LocalBrain(Brain):
             "stream": False,
             "think": self.think,                         # False = niente ragionamento lento
             "keep_alive": self.keep_alive,               # tiene il modello caldo in RAM
-            "options": {"num_predict": self.max_tokens},
+            "options": self._options(),
         }
         headers = {"content-type": "application/json"}
         if self.api_key:
             headers["authorization"] = f"Bearer {self.api_key}"
-        resp = requests.post(self.base_url + "/api/chat",
-                             headers=headers, json=payload, timeout=120)
+        try:
+            resp = requests.post(self.base_url + "/api/chat",
+                                 headers=headers, json=payload, timeout=120)
+        except requests.exceptions.ConnectionError:
+            raise RuntimeError(self._errore_connessione()) from None
+        if resp.status_code == 404:
+            raise RuntimeError(self._errore_modello())
         resp.raise_for_status()
         text = resp.json()["message"]["content"].strip()
         self._messages.append({"role": "assistant", "content": text})
@@ -262,14 +290,20 @@ class LocalBrain(Brain):
             "stream": True,
             "think": self.think,
             "keep_alive": self.keep_alive,
-            "options": {"num_predict": self.max_tokens},
+            "options": self._options(),
         }
         headers = {"content-type": "application/json"}
         if self.api_key:
             headers["authorization"] = f"Bearer {self.api_key}"
         pezzi: list[str] = []
-        with requests.post(self.base_url + "/api/chat", headers=headers,
-                           json=payload, stream=True, timeout=120) as resp:
+        try:
+            resp = requests.post(self.base_url + "/api/chat", headers=headers,
+                                 json=payload, stream=True, timeout=120)
+        except requests.exceptions.ConnectionError:
+            raise RuntimeError(self._errore_connessione()) from None
+        with resp:
+            if resp.status_code == 404:
+                raise RuntimeError(self._errore_modello())
             resp.raise_for_status()
             for riga in resp.iter_lines():
                 if not riga:
@@ -315,6 +349,8 @@ def build_brain(config, persona: Persona) -> Brain:
             think=config.local_llm_think,
             api_key=config.local_llm_key,
             keep_alive=getattr(config, "local_llm_keep_alive", "30m"),
+            temperature=getattr(config, "local_llm_temp", 0.85),
+            repeat_penalty=getattr(config, "local_llm_repeat_penalty", 1.3),
         )
     if backend == "claude":
         return ClaudeBrain(
