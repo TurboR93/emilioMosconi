@@ -121,14 +121,20 @@ _PAGINA = """<!doctype html><html lang="it"><head><meta charset="utf-8">
 <style>
  html,body{margin:0;height:100%;background:#0b0b0f;overflow:hidden}
  #faccia{display:block;margin:auto}
- #et{position:fixed;bottom:14px;left:0;right:0;text-align:center;
-     color:#888;font:600 18px system-ui,sans-serif;letter-spacing:.04em}
+ #et{position:fixed;bottom:18px;left:0;right:0;text-align:center;
+     color:#d6dade;font:700 26px system-ui,sans-serif;letter-spacing:.05em}
+ @keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
+ #et.attivo{animation:pulse 1.1s ease-in-out infinite}
 </style></head><body>
 <canvas id="faccia" width="640" height="400"></canvas>
 <div id="et">…</div>
 <script>
 const W=640,H=400,c=document.getElementById('faccia'),x=c.getContext('2d'),et=document.getElementById('et');
 const OFF={centro:[0,0],sinistra:[-14,0],destra:[14,0],su:[0,-10],giu:[0,10]};
+// Stato d'animo -> cosa sta facendo Emilio (feedback chiaro nella pagina).
+const STATI={ascolta:'🎤 TI ASCOLTO…',pensa:'🤔 STO PENSANDO…',parla:'🗣️ PARLO',
+ arrabbiato:'😡 INCAVOLATO NERO',felice:'🙂 CONTENTO',sorpreso:'😮 SORPRESO',
+ triste:'😔 GIÙ DI CORDA',neutro:'· pronto ·',spento:'· spento ·'};
 let S={espressione:'neutro',colore:'#7CFC00',aperti:true,direzione:'centro'};
 
 // Testa di Emiglio: calotta bianca, pannelli colorati in alto, visiera nera
@@ -189,7 +195,8 @@ function frame(now){
   if(arr){forca(266,188,S.colore,t,0.62);forca(374,188,S.colore,t+0.4,0.62);}
   else{occhio(266,180,S.colore,S.aperti,S.direzione);occhio(374,180,S.colore,S.aperti,S.direzione);}
   bocca(t,S.espressione==='parla',arr);
-  et.textContent=(arr?'ARRABBIATO 😈':S.espressione.toUpperCase()+'  •  '+S.colore);
+  et.textContent=STATI[S.espressione]||S.espressione.toUpperCase();
+  et.className=(S.espressione==='ascolta'||S.espressione==='pensa')?'attivo':'';
   requestAnimationFrame(frame);
 }
 async function poll(){try{S=await(await fetch('/stato')).json();}catch(e){et.textContent='(in attesa di Emilio…)';}}

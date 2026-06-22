@@ -137,11 +137,15 @@ def _comando(agent: EmilioAgent, linea: str) -> bool:
               "di' 'basta' (o Ctrl-C) per uscire.")
         try:
             while True:
+                print("🎤 Parla ora…")
                 try:
                     testo = agent.ascolta(sec)
                 except Exception as e:
                     print(f"⚠️  microfono/STT non disponibile: {e}")
                     break
+                if not testo.strip():
+                    print("   (non ho sentito niente, riprova)")
+                    continue
                 print(f"🎤 Hai detto: {testo!r}")
                 low = testo.lower()
                 if any(w in low for w in ("basta", "esci", "ferma", "stop", "arrivederci")):

@@ -114,11 +114,25 @@ class WhisperAscoltatore(Ascoltatore):
                 "variabile EMILIO_MIC_DEVICE.\n" + coda
             )
 
+    # Frasi che Whisper "allucina" sul silenzio (da sottotitoli nei dati): scarta.
+    _ALLUCINAZIONI = (
+        "sottotitoli", "qtss", "amara.org", "iscriviti al canale",
+        "grazie per la visione", "sottotitoli e revisione",
+    )
+
     def trascrivi(self, wav: str) -> str:
-        """Trascrive un file audio già pronto (utile anche per i test)."""
+        """Trascrive un file audio già pronto (utile anche per i test).
+
+        `vad_filter` salta i tratti di silenzio: migliora l'accuratezza ed evita
+        le tipiche allucinazioni di Whisper quando non parli.
+        """
         model = self._carica()
-        segmenti, _ = model.transcribe(wav, language=self.lingua)
-        return " ".join(s.text for s in segmenti).strip()
+        segmenti, _ = model.transcribe(wav, language=self.lingua, vad_filter=True)
+        testo = " ".join(s.text for s in segmenti).strip()
+        low = testo.lower()
+        if any(a in low for a in self._ALLUCINAZIONI):
+            return ""   # silenzio frainteso: meglio niente che spazzatura
+        return testo
 
     def ascolta(self, secondi: float = 5.0) -> str:
         wav = os.path.join(tempfile.gettempdir(), "emilio_mic.wav")
