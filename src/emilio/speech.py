@@ -22,6 +22,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import tempfile
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -124,9 +125,11 @@ class MockSpeaker(Speaker):
 
 
 class Pyttsx3Speaker(Speaker):
-    def __init__(self, profilo: str = "offline", language: str = "it", voce: str = ""):
+    def __init__(self, profilo: str = "offline", language: str = "it", voce: str = "",
+                 bip_dir: str | None = None):
         import pyttsx3
         self.profilo = profilo
+        self.bip_dir = bip_dir
         self._engine = pyttsx3.init()
         voci = self._engine.getProperty("voices")
         lang = language.lower()
@@ -155,12 +158,59 @@ class Pyttsx3Speaker(Speaker):
 
     def say(self, text: str, bleep_spans: list[tuple[int, int]] | None = None) -> SpeechMetrics:
         t0 = time.perf_counter()
-        # TTS offline senza timestamp: ripiego "sicuro" — la parolaccia non viene
-        # pronunciata (sostituita da "bip" parlato). Approssima il bip audio.
+        if bleep_spans and self._say_con_bip(text, bleep_spans):
+            return SpeechMetrics("pyttsx3", self.profilo, None,
+                                 time.perf_counter() - t0, len(text))
+        # Ripiego: se lo splice del bip non è possibile, la parolaccia NON viene
+        # comunque pronunciata (sostituita da "bip" parlato).
         da_dire = audio_bip.testo_sicuro(text, bleep_spans) if bleep_spans else text
         self._engine.say(da_dire)
         self._engine.runAndWait()
         return SpeechMetrics("pyttsx3", self.profilo, None, time.perf_counter() - t0, len(text))
+
+    def _say_con_bip(self, text: str, spans: list[tuple[int, int]]) -> bool:
+        """Voce offline col BIP VERO: sintetizza i pezzi puliti e ci infila il
+        file bip al posto delle parolacce (che così non vengono mai pronunciate),
+        poi concatena tutto con ffmpeg. True se va a buon fine."""
+        beep = audio_bip.scegli_beep(self.bip_dir)
+        if not beep or not shutil.which("ffmpeg"):
+            return False
+        # Segmenta il testo in pezzi puliti e segnaposto-bip.
+        pezzi: list[tuple[str, str]] = []
+        i = 0
+        for a, b in sorted(spans):
+            a = max(0, a); b = min(b, len(text))
+            if b <= a:
+                continue
+            if a > i:
+                pezzi.append(("voce", text[i:a]))
+            pezzi.append(("bip", ""))
+            i = b
+        if i < len(text):
+            pezzi.append(("voce", text[i:]))
+
+        tmp = tempfile.mkdtemp(prefix="emilio_bip_")
+        try:
+            files: list[str] = []
+            idx = 0
+            for tipo, seg in pezzi:
+                if tipo == "bip":
+                    files.append(str(beep))
+                elif seg.strip():
+                    wav = os.path.join(tmp, f"seg{idx}.wav")
+                    idx += 1
+                    self._engine.save_to_file(seg, wav)
+                    self._engine.runAndWait()
+                    if os.path.exists(wav) and os.path.getsize(wav) > 0:
+                        files.append(wav)
+            out = os.path.join(tmp, "finale.wav")
+            if audio_bip.concatena_audio(files, out):
+                if not _play_file(out):
+                    print(f"🔊 [Emilio] (audio bippato in {out}, nessun player)")
+                return True
+            return False
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 def _stream_player() -> list[str] | None:
@@ -402,7 +452,8 @@ class VoiceManager:
             )
         if p.backend == "pyttsx3":
             return Pyttsx3Speaker(profilo=p.name, language=self.config.tts_language,
-                                  voce=getattr(self.config, "tts_voice", ""))
+                                  voce=getattr(self.config, "tts_voice", ""),
+                                  bip_dir=getattr(self.config, "bip_dir", None))
         return MockSpeaker(profilo=p.name,
                            bip_marker=getattr(self.config, "bip_marker", "[BIP]"))
 

@@ -155,12 +155,16 @@ Per parlargli davvero, come farà il prodotto finale:
 pip install -e ".[listen]"           # faster-whisper (STT offline, italiano)
 export EMILIO_ASCOLTO=whisper
 export EMILIO_STT_MODEL=small        # tiny|base|small|medium (qualità vs velocità)
-EMILIO_LLM=local EMILIO_VOICE=offline EMILIO_OCCHI=preview emilio
-# poi nel prompt:  /ascolta 5   → registra 5s dal microfono e Emilio risponde
+EMILIO_LLM=local EMILIO_VOICE=offline EMILIO_OCCHI=preview EMILIO_ASCOLTO=whisper emilio
+# poi nel prompt:
+#   /ascolta 5    → registra 5s dal microfono e Emilio risponde (una volta)
+#   /conversa     → modalità voce a MANI LIBERE: parli e lui risponde, a giro
+#                   (di' "basta" o Ctrl-C per uscire)
 ```
 
 > Il microfono su macOS chiede il **permesso** la prima volta (al Terminale/app
-> che lancia Emilio). Lo STT, come l'LLM locale, gira sul **Mac**.
+> che lancia Emilio). Lo STT, come l'LLM locale, gira sul **Mac**. Il BIP di
+> censura è un **tono** vero (anche con la voce offline, non la parola "bip").
 
 ## Da codice
 

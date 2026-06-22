@@ -150,6 +150,32 @@ def costruisci_filtro(intervalli: list[tuple[float, float]],
     return ";".join(parti)
 
 
+def concatena_audio(files: list[str | Path], audio_out: str | Path) -> bool:
+    """Concatena in ordine più file audio (ricampionati a 44.1k mono) via ffmpeg.
+
+    Serve alla voce offline per cucire i pezzi parlati col file BIP al posto delle
+    parolacce (così si sente il bip vero, non la parola "bip"). True se ok.
+    """
+    files = [str(f) for f in files if f]
+    if not files or not shutil.which("ffmpeg"):
+        return False
+    cmd = ["ffmpeg", "-y"]
+    for f in files:
+        cmd += ["-i", f]
+    n = len(files)
+    pre = "".join(
+        f"[{i}:a]aresample=44100,aformat=sample_fmts=s16:channel_layouts=mono[a{i}];"
+        for i in range(n)
+    )
+    concat = "".join(f"[a{i}]" for i in range(n)) + f"concat=n={n}:v=0:a=1[out]"
+    cmd += ["-filter_complex", pre + concat, "-map", "[out]", str(audio_out)]
+    try:
+        r = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return r.returncode == 0 and Path(audio_out).exists()
+    except Exception:
+        return False
+
+
 def _durata(path: str | Path) -> float | None:
     """Durata in secondi di un file audio (via ffprobe), o None se ignota."""
     if not shutil.which("ffprobe"):

@@ -14,7 +14,8 @@ Comandi:
     /azioni                 elenca i movimenti disponibili
     /occhi [espressione]    cambia l'espressione degli occhi (senza arg: elenca)
     /occhi guarda <dir>     fai guardare gli occhi (centro/sinistra/destra/su/giu)
-    /ascolta [secondi]      parla a VOCE: registra dal microfono e Emilio risponde
+    /ascolta [secondi]      parla a VOCE una volta: registra dal microfono e risponde
+    /conversa [secondi]     modalità voce a MANI LIBERE: parli e lui risponde, a giro
     /censura on|off|stato   controllo amministratore della supervisione
     /mod <testo>            analizza un testo col supervisore (debug)
     /reset                  azzera la memoria della conversazione
@@ -125,6 +126,36 @@ def _comando(agent: EmilioAgent, linea: str) -> bool:
             print(f"   [emozione: {ris.emozione} | latenza LLM: {ris.latenza_llm*1000:.0f}ms{voce}]")
             if ris.censura_applicata:
                 print(f"   [supervisore: {ris.report.summary()} | bip: {len(ris.span_censura)}]")
+    elif cmd == "/conversa":
+        sec = None
+        if args:
+            try:
+                sec = float(args[0])
+            except ValueError:
+                pass
+        print("🎤 Modalità voce a MANI LIBERE. Parla quando vuoi; "
+              "di' 'basta' (o Ctrl-C) per uscire.")
+        try:
+            while True:
+                try:
+                    testo = agent.ascolta(sec)
+                except Exception as e:
+                    print(f"⚠️  microfono/STT non disponibile: {e}")
+                    break
+                print(f"🎤 Hai detto: {testo!r}")
+                low = testo.lower()
+                if any(w in low for w in ("basta", "esci", "ferma", "stop", "arrivederci")):
+                    print("Ok, smetto di ascoltare.")
+                    break
+                if not testo.strip():
+                    continue
+                ris = agent.parla(testo)
+                voce = f" | {ris.voce}" if ris.voce else ""
+                print(f"   [emozione: {ris.emozione} | latenza LLM: {ris.latenza_llm*1000:.0f}ms{voce}]")
+                if ris.censura_applicata:
+                    print(f"   [supervisore: {ris.report.summary()} | bip: {len(ris.span_censura)}]")
+        except KeyboardInterrupt:
+            print("\n(uscito dalla modalità voce)")
     elif cmd == "/censura":
         sub = args[0].lower() if args else "stato"
         if sub == "on":
