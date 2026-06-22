@@ -65,11 +65,14 @@ class TestOcchi(unittest.TestCase):
 
 
 class TestOcchiNellaPipeline(unittest.TestCase):
-    def test_dopo_parla_occhi_neutri(self):
+    def test_dopo_parla_occhi_a_riposo(self):
         ag = EmilioAgent(EmilioConfig(), brain=MockBrain(seed=1))
-        ag.parla("ciao")
-        # _pronuncia mette "parla" durante e "neutro" alla fine
-        self.assertEqual(ag.occhi.stato.espressione, "neutro")
+        ris = ag.parla("ciao")
+        # a fine battuta gli occhi mostrano l'emozione "stabile", mai parla/pensa
+        atteso = ris.emozione if ris.emozione in (
+            "neutro", "felice", "arrabbiato", "sorpreso", "triste") else "neutro"
+        self.assertEqual(ag.occhi.stato.espressione, atteso)
+        self.assertNotIn(ag.occhi.stato.espressione, ("parla", "pensa"))
 
     def test_set_occhi_runtime(self):
         ag = EmilioAgent(EmilioConfig(), brain=MockBrain(seed=1))

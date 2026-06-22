@@ -45,6 +45,8 @@ PROFANITY: list[tuple[str, int, bool]] = [
     ("stronz", 2, True),
     ("merd", 2, True),
     ("coglion", 2, True),
+    ("mona", 2, False),         # veneto: "va' in mona" (figa / scemo)
+    ("mone", 2, False),
     ("zoccol", 2, True),
     ("bastard", 2, True),
     ("fott", 2, True),          # fottuto, fottere
@@ -64,6 +66,7 @@ PROFANITY: list[tuple[str, int, bool]] = [
 BLASPHEMY_DIVINE: list[str] = [
     "dio", "dii", "iddio",
     "madonna", "madonne",
+    "madona", "madone",         # grafia veneta (una sola n)
     "cristo", "cristi",
     "gesu", "gesù", "gesucristo",
     "ostia", "ostie",

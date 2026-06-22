@@ -38,7 +38,7 @@ class TestReazione(unittest.TestCase):
         ag = self._ag()
         ris = ag.parla("ciao, come stai oggi?")
         self.assertNotEqual(ris.emozione, "arrabbiato")
-        self.assertEqual(ag.occhi.stato.espressione, "neutro")
+        self.assertNotEqual(ag.occhi.stato.espressione, "arrabbiato")
 
     def test_il_tag_non_viene_pronunciato(self):
         ag = self._ag()

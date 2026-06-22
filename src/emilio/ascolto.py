@@ -81,9 +81,19 @@ class WhisperAscoltatore(Ascoltatore):
 
     def _carica(self):
         if self._model is None:
-            from faster_whisper import WhisperModel  # import pigro
-            self._model = WhisperModel(self.model_name, device="cpu",
-                                       compute_type=self.compute)
+            try:
+                from faster_whisper import WhisperModel  # import pigro
+            except ImportError:
+                raise RuntimeError(
+                    "faster-whisper non installato. Esegui: pip install -e \".[listen]\""
+                ) from None
+            try:
+                self._model = WhisperModel(self.model_name, device="cpu",
+                                           compute_type=self.compute)
+            except ValueError:
+                # alcune build di CTranslate2 non supportano int8: ripiega
+                self._model = WhisperModel(self.model_name, device="cpu",
+                                           compute_type="float32")
         return self._model
 
     def _registra(self, secondi: float, wav: str) -> None:
@@ -91,7 +101,18 @@ class WhisperAscoltatore(Ascoltatore):
             raise RuntimeError("ffmpeg non trovato: serve per registrare dal microfono.")
         cmd = ["ffmpeg", "-y", "-f", "avfoundation", "-i", f":{self.device_audio}",
                "-t", str(secondi), "-ar", "16000", "-ac", "1", wav]
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True,
+                               timeout=float(secondi) + 15)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("registrazione bloccata: il device audio non risponde.") from None
+        if r.returncode != 0:
+            coda = "\n".join(r.stderr.strip().splitlines()[-3:])
+            raise RuntimeError(
+                "registrazione dal microfono fallita. Verifica il permesso Microfono "
+                "(Impostazioni di Sistema > Privacy e Sicurezza > Microfono) e la "
+                "variabile EMILIO_MIC_DEVICE.\n" + coda
+            )
 
     def trascrivi(self, wav: str) -> str:
         """Trascrive un file audio già pronto (utile anche per i test)."""
@@ -113,5 +134,6 @@ def build_ascoltatore(config) -> Ascoltatore:
             model=getattr(config, "stt_model", "small"),
             lingua=getattr(config, "stt_lingua", "it"),
             device_audio=getattr(config, "mic_device", ""),
+            compute=getattr(config, "stt_compute", "int8"),
         )
     return MockAscoltatore()

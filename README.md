@@ -220,7 +220,7 @@ Da console: `/censura on|off|stato`. Per ampliare il lessico aggiungi termini in
 |-----------|---------|------|
 | `EMILIO_LLM` | (vuoto) | backend cervello: `mock`/`claude`/`local` |
 | `EMILIO_LOCAL_MODEL` | `gemma4:12b` | modello dell'LLM locale (Ollama) |
-| `EMILIO_LOCAL_URL` | `http://localhost:11434/v1` | endpoint LLM locale (compatibile OpenAI) |
+| `EMILIO_LOCAL_URL` | `http://localhost:11434` | endpoint Ollama (API nativa `/api/chat`) |
 | `EMILIO_USE_LLM` | `0` | retrocompat: `1` = `claude` se `EMILIO_LLM` non impostato |
 | `EMILIO_MODEL` | `claude-opus-4-8` | modello Claude (cloud) |
 | `EMILIO_MODERATION` | `1` | supervisione (BIP) on/off all'avvio — disattivabile da admin |

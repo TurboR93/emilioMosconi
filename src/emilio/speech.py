@@ -295,17 +295,27 @@ class ElevenLabsSpeaker(Speaker):
         headers = {"xi-api-key": self.api_key, "content-type": "application/json"}
         url = self.BASE.format(voice_id=self.p.voice_id) + "/with-timestamps"
         params = {"output_format": self.p.output_format}
+        payload = self._payload(text)
+        # Niente normalizzazione del testo: serve un allineamento 1:1 coi
+        # caratteri (altrimenti gli offset del moderatore non combaciano).
+        payload["apply_text_normalization"] = "off"
         t0 = time.perf_counter()
         try:
             resp = requests.post(url, headers=headers, params=params,
-                                 json=self._payload(text), timeout=30)
+                                 json=payload, timeout=30)
             resp.raise_for_status()
             ttfb = time.perf_counter() - t0
             data = resp.json()
             audio = base64.b64decode(data["audio_base64"])
             align = data.get("alignment") or {}
+            chars = align.get("characters") or []
             cs = align.get("character_start_times_seconds") or []
             ce = align.get("character_end_times_seconds") or []
+            # L'allineamento DEVE combaciare 1:1 col testo: altrimenti gli offset
+            # del moderatore puntano nel posto sbagliato e il bip mancherebbe la
+            # parolaccia -> ripiego sicuro (mai turpiloquio in chiaro).
+            if not (len(chars) == len(cs) == len(ce) == len(text)):
+                raise ValueError("allineamento non 1:1 col testo")
 
             grezzo = self.audio_out + ".raw"
             with open(grezzo, "wb") as f:
@@ -313,7 +323,7 @@ class ElevenLabsSpeaker(Speaker):
 
             intervalli = audio_bip.intervalli_da_allineamento(bleep_spans, cs, ce)
             beep = audio_bip.scegli_beep(self.bip_dir)
-            if audio_bip.applica_bip(grezzo, intervalli, beep, self.audio_out):
+            if intervalli and audio_bip.applica_bip(grezzo, intervalli, beep, self.audio_out):
                 try:
                     os.remove(grezzo)
                 except OSError:

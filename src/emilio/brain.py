@@ -52,10 +52,10 @@ class MockBrain(Brain):
         "[neutro] Ma certo, figurati, c'ho passato una vita su queste cose.",
     ]
     ARRABBIATO = [
-        "[arrabbiato] Porco dio, ma chi ti credi di essere? Abbassa la cresta!",
-        "[arrabbiato] Ma vaffanculo va', stronzo, ripetilo se hai coraggio!",
-        "[arrabbiato] Ma che cazzo dici, dio cane! Sei proprio un coglione!",
-        "[arrabbiato] Vaffanculo, testa di cazzo, ma quanto sei coglione, porca madonna!",
+        "[arrabbiato] Porco dio, dio can, ma chi te credi de essere?! Vaffanculo va'!",
+        "[arrabbiato] Madonna ladra, dio boia, ma va' in mona! Coglione, porca madonna!",
+        "[arrabbiato] Dio cane, ostia santa, vaffanculo te e chi t'ha fatto, dio porco!",
+        "[arrabbiato] Ma va' in mona, dio can! Stronzo, porco dio, te spacco i bulloni!",
     ]
 
     # Marcatori (sottostringa) che indicano insulto o contraddizione nell'input.

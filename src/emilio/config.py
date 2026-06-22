@@ -79,6 +79,7 @@ class EmilioConfig:
     stt_backend: str = os.environ.get("EMILIO_ASCOLTO", "mock")  # mock|whisper
     stt_model: str = os.environ.get("EMILIO_STT_MODEL", "small")  # tiny|base|small|medium
     stt_lingua: str = os.environ.get("EMILIO_STT_LANG", "it")
+    stt_compute: str = os.environ.get("EMILIO_STT_COMPUTE", "int8")  # int8|int8_float32|float32
     mic_device: str = os.environ.get("EMILIO_MIC_DEVICE", "")    # indice avfoundation; vuoto=auto
     stt_secondi: float = float(os.environ.get("EMILIO_STT_SECONDI", "5"))
 

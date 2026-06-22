@@ -34,17 +34,27 @@ from .persona import Persona
 from .speech import SpeechMetrics, VoiceManager, VoiceProfile, build_voice_manager
 
 # Tag di stato d'animo a inizio risposta dell'LLM, es. "[arrabbiato] ...".
-_TAG_EMOZIONE = re.compile(r"^\s*\[([a-zàèéìòùA-Z]+)\]\s*")
+# Tollerante: virgolette/asterischi attorno, spazi interni, punteggiatura.
+_TAG_EMOZIONE = re.compile(r"""^\s*["'*]*\[\s*([^\]]{1,30}?)\s*\]["'*]*\s*""")
 # Emozioni che l'LLM può dichiarare (le altre voci di ESPRESSIONI sono "di stato").
 _EMOZIONI_LLM = {"neutro", "felice", "arrabbiato", "sorpreso", "triste", "pensa"}
 
 
 def _estrai_emozione(testo: str) -> tuple[str | None, str]:
-    """Stacca un eventuale tag '[emozione]' iniziale. Ritorna (tag|None, testo)."""
+    """Stacca un tag '[emozione]' iniziale SOLO se è un'emozione nota.
+
+    Tollera '[molto arrabbiato]', '[arrabbiato!]', '"[arrabbiato]"' ecc. Se fra
+    le parentesi non c'è un'emozione valida (es. '[Bologna]', '[ndr]'), lascia
+    il testo INTATTO: meglio non mangiare contenuto legittimo.
+    """
     m = _TAG_EMOZIONE.match(testo)
     if not m:
         return None, testo
-    return m.group(1).lower(), testo[m.end():]
+    parole = re.findall(r"[a-zàèéìòù]+", m.group(1).lower())
+    emo = parole[-1] if parole else ""
+    if emo in _EMOZIONI_LLM:
+        return emo, testo[m.end():]
+    return None, testo
 
 
 @dataclass
@@ -201,8 +211,12 @@ class EmilioAgent:
         except Exception:
             pass
         metriche = self.voci.say(testo, bleep_spans=span)
+        # A fine battuta lascia l'espressione dichiarata se è "stabile"
+        # (neutro/felice/arrabbiato/sorpreso/triste); pensa/parla/ascolta -> neutro.
+        riposo = emozione if emozione in ESPRESSIONI and emozione not in (
+            "parla", "pensa", "ascolta", "spento") else "neutro"
         try:
-            self.occhi.imposta("arrabbiato" if arrabbiato else "neutro")
+            self.occhi.imposta(riposo)
         except Exception:
             pass
         return metriche

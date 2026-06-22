@@ -73,10 +73,11 @@ funzionano **solo dopo `pip install -e .`** (non basta stare nella cartella).
 ## Cervello: backend selezionabile
 
 `EMILIO_LLM` = `mock` | `claude` | `local`. Il **`LocalBrain`** ([brain.py](src/emilio/brain.py))
-parla con un server compatibile OpenAI (Ollama/Gemma su `localhost:11434/v1`),
-per sviluppo offline sul Mac. Si passa a Claude (cloud) o al locale **solo via
-env**, senza toccare la pipeline. **Onboard sul Pi si userà il cloud** (`claude`
-+ ElevenLabs): il Raspberry non regge l'inferenza locale.
+usa l'**API nativa di Ollama** (`localhost:11434/api/chat`, campo `think:false`
+per disattivare il ragionamento lento — NON è l'API OpenAI `/v1`), per sviluppo
+offline sul Mac. Si passa a Claude (cloud) o al locale **solo via env**, senza
+toccare la pipeline. **Onboard sul Pi si userà il cloud** (`claude` + ElevenLabs):
+il Raspberry non regge l'inferenza locale.
 
 ## Occhi (importantissimi)
 

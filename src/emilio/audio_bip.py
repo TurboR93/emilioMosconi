@@ -150,6 +150,21 @@ def costruisci_filtro(intervalli: list[tuple[float, float]],
     return ";".join(parti)
 
 
+def _durata(path: str | Path) -> float | None:
+    """Durata in secondi di un file audio (via ffprobe), o None se ignota."""
+    if not shutil.which("ffprobe"):
+        return None
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=nw=1:nk=1", str(path)],
+            capture_output=True, text=True, timeout=10,
+        )
+        return float(r.stdout.strip())
+    except Exception:
+        return None
+
+
 def applica_bip(audio_in: str | Path,
                 intervalli: list[tuple[float, float]],
                 beep_path: str | Path | None,
@@ -158,11 +173,19 @@ def applica_bip(audio_in: str | Path,
 
     Il BIP viene messo in loop (`-stream_loop`) e troncato alla durata di ogni
     parola, così copre per intero anche le parole più lunghe del file bip.
+    Se un intervallo cade FUORI dalla durata reale dell'audio (allineamento
+    sballato), fallisce di proposito: meglio il ripiego sicuro che un bip a
+    vuoto con la parolaccia udibile.
     """
     if not intervalli or not beep_path:
         return False
     if not shutil.which("ffmpeg"):
         return False
+    # Validazione: intervalli monotoni e dentro la durata reale dell'audio.
+    dur = _durata(audio_in)
+    for t0, t1 in intervalli:
+        if t0 < 0 or t1 <= t0 or (dur is not None and t1 > dur + 0.05):
+            return False
     filtro = costruisci_filtro(intervalli, idx_beep=1)
     if not filtro:
         return False
