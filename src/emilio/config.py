@@ -59,7 +59,10 @@ class EmilioConfig:
     # italiana vera (es. Alice). Le voci "eloquence" vengono evitate.
     tts_voice: str = os.environ.get("EMILIO_TTS_VOICE", "Luca")
     elevenlabs_api_key: str | None = os.environ.get("ELEVENLABS_API_KEY")
-    elevenlabs_voice_id: str = os.environ.get("ELEVENLABS_VOICE_ID", "")
+    # Default per i test: "Adam", voce premade maschile usabile anche col piano
+    # Free via API (le voci della Library richiedono un piano a pagamento).
+    # Sostituisci con la TUA voce italiana via ELEVENLABS_VOICE_ID (piano $5+).
+    elevenlabs_voice_id: str = os.environ.get("ELEVENLABS_VOICE_ID", "pNInz6obpgDQGcFmaJgB")
     elevenlabs_model: str = os.environ.get("ELEVENLABS_MODEL", "eleven_multilingual_v2")
     # Cartella dove salvare/riprodurre l'audio generato.
     audio_out: str = os.environ.get("EMILIO_AUDIO_OUT", "emilio_voce.mp3")
