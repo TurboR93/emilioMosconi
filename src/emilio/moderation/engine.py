@@ -184,24 +184,50 @@ class Moderator:
     # Modello attuale: il cervello NON riformula. Il supervisore individua gli
     # span "sporchi"; la voce li copre con un bip sull'audio (vedi speech.py +
     # audio_bip.py). Qui forniamo gli span e una resa testuale per log/console.
+    #
+    # Censura MIRATA "alla veneta": di ogni parola si lasciano udibili le PRIME
+    # DUE lettere e, per parole di 5+ lettere, anche l'ULTIMA; si bippa solo il
+    # centro. Così resta capibile ("ca[bip]o", "va[bip]o", "po[bip]o di[bip]").
+
+    @staticmethod
+    def _riduci_match(m: Match) -> list[tuple[int, int]]:
+        """Sub-span da bippare DENTRO un match, parola per parola."""
+        spans: list[tuple[int, int]] = []
+        for w in re.finditer(r"[0-9a-zà-ÿ]+", m.text, re.IGNORECASE | re.UNICODE):
+            lung = w.end() - w.start()
+            if lung <= 2:
+                continue                       # parola corta: tutta udibile
+            inizio = w.start() + 2             # lascia le prime 2 lettere
+            fine = w.end() - 1 if lung >= 5 else w.end()  # 5+ -> lascia l'ultima
+            if fine > inizio:
+                spans.append((m.start + inizio, m.start + fine))
+        return spans
 
     def span_censura(self, report: Report) -> list[tuple[int, int]]:
-        """Intervalli di CARATTERE da coprire col bip (vuoto se non `enabled`)."""
+        """Intervalli di CARATTERE da coprire col bip (vuoto se non `enabled`).
+
+        Sono gli span RIDOTTI (solo il centro delle parolacce), non l'intera
+        parola: vedi `_riduci_match`.
+        """
         if not self.enabled:
             return []
-        return [(m.start, m.end) for m in report.matches]
+        spans: list[tuple[int, int]] = []
+        for m in report.matches:
+            spans.extend(self._riduci_match(m))
+        return spans
 
     def testo_con_bip(self, text: str, report: Report | None = None) -> str:
-        """Testo con le parti sporche sostituite dal marcatore del bip.
+        """Testo con il CENTRO delle parolacce sostituito dal marcatore del bip.
 
-        È la versione da mostrare/loggare (l'audio reale viene bippato a parte).
+        È la resa da mostrare/loggare (l'audio reale viene bippato a parte) e
+        rispecchia la censura mirata: 'sei uno st[BIP]o'.
         """
         report = report or self.review(text)
         if not self.enabled or report.clean:
             return text
         out = text
-        for m in sorted(report.matches, key=lambda x: x.start, reverse=True):
-            out = out[:m.start] + self.bip_marker + out[m.end:]
+        for a, b in sorted(self.span_censura(report), key=lambda s: s[0], reverse=True):
+            out = out[:a] + self.bip_marker + out[b:]
         return out
 
     # -- punto di passaggio unico nella pipeline ---------------------------
