@@ -7,6 +7,7 @@ from .engine import (
     Moderator,
     Report,
     contains_bad_language,
+    contiene_provocazione,
     default_moderator,
 )
 
@@ -18,4 +19,5 @@ __all__ = [
     "BLASPHEMY",
     "default_moderator",
     "contains_bad_language",
+    "contiene_provocazione",
 ]

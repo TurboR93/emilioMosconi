@@ -40,6 +40,18 @@ class TestReazione(unittest.TestCase):
         self.assertNotEqual(ris.emozione, "arrabbiato")
         self.assertNotEqual(ag.occhi.stato.espressione, "arrabbiato")
 
+    def test_insulto_mite_senza_parolacce(self):
+        # offese "pulite" (scemo/inutile) devono comunque farlo infuriare
+        ris = self._ag().parla("ma quanto sei inutile e scemo")
+        self.assertEqual(ris.emozione, "arrabbiato")
+
+    def test_due_insulti_di_fila_triggerano_entrambi(self):
+        ag = self._ag()
+        r1 = ag.parla("sei un cretino")
+        r2 = ag.parla("ti sbagli, non vali niente")
+        self.assertEqual(r1.emozione, "arrabbiato")
+        self.assertEqual(r2.emozione, "arrabbiato")
+
     def test_il_tag_non_viene_pronunciato(self):
         ag = self._ag()
         ris = ag.parla("sei uno stronzo")

@@ -110,6 +110,17 @@ BLASPHEMY_FIXED: list[str] = [
     "madonna del",          # incipit volgare comune ("madonna del ...")
 ]
 
+# Insulti/contraddizioni che "provocano" Emilio (oltre alle parolacce vere):
+# servono a farlo infuriare anche quando l'offesa non è turpiloquio.
+PROVOCAZIONI: list[str] = [
+    "scem", "cretin", "idiot", "imbecill", "deficien", "stupid", "fesso",
+    "tonto", "rincoglion", "fallito", "inutile", "buono a nulla", "non vali",
+    "fai schifo", "fai pena", "ti odio", "sei brutto", "sei vecchio",
+    "rottame", "ferraglia", "catorcio", "scatoletta", "bidone di bulloni",
+    "ti sbagli", "hai torto", "non è vero", "non e vero", "non sono d'accordo",
+    "ma stai zitto", "stai zitto", "taci",
+]
+
 # Interiezioni innocue con cui sostituire una bestemmia censurata
 INTERJECTIONS: list[str] = [
     "santo cielo",

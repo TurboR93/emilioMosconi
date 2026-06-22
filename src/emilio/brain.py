@@ -20,11 +20,26 @@ from abc import ABC, abstractmethod
 
 from .persona import Persona
 
+# Spinta una-tantum quando l'utente provoca: l'LLM tende a "calmarsi" nei turni
+# successivi, qui lo si ri-infuria per quel turno (vedi agent._provocato_input).
+_NUDGE_ARRABBIATO = (
+    "\n\n(L'utente ti ha appena offeso o contraddetto: rispondi INFURIATO, "
+    "acido e sboccato — parolacce e bestemmie venete a raffica, senza trattenerti.)"
+)
+
+
+def _con_umore(user_text: str, umore: str) -> str:
+    """Aggiunge una spinta al testo utente in base all'umore rilevato."""
+    if umore == "arrabbiato":
+        return user_text + _NUDGE_ARRABBIATO
+    return user_text
+
 
 class Brain(ABC):
     @abstractmethod
-    def reply(self, user_text: str) -> str:
-        """Genera la risposta di Emilio a un input dell'utente."""
+    def reply(self, user_text: str, umore: str = "") -> str:
+        """Genera la risposta di Emilio. `umore` è un suggerimento sullo stato
+        d'animo rilevato dall'utente (es. 'arrabbiato' se ti ha provocato)."""
 
     @abstractmethod
     def revise(self, motivo: str = "") -> str:
@@ -76,9 +91,10 @@ class MockBrain(Brain):
         t = testo.lower()
         return any(m in t for m in self._PROVOCAZIONI)
 
-    def reply(self, user_text: str) -> str:
+    def reply(self, user_text: str, umore: str = "") -> str:
         self._last_user = user_text
-        pool = self.ARRABBIATO if (self.naughty or self._provocato(user_text)) else self.CLEAN
+        arrabbiato = self.naughty or umore == "arrabbiato" or self._provocato(user_text)
+        pool = self.ARRABBIATO if arrabbiato else self.CLEAN
         return self._rng.choice(pool)
 
     def revise(self, motivo: str = "") -> str:
@@ -130,8 +146,8 @@ class ClaudeBrain(Brain):
         self._messages.append({"role": "assistant", "content": text})
         return text
 
-    def reply(self, user_text: str) -> str:
-        self._messages.append({"role": "user", "content": user_text})
+    def reply(self, user_text: str, umore: str = "") -> str:
+        self._messages.append({"role": "user", "content": _con_umore(user_text, umore)})
         return self._generate()
 
     def revise(self, motivo: str = "") -> str:
@@ -203,8 +219,8 @@ class LocalBrain(Brain):
         self._messages.append({"role": "assistant", "content": text})
         return text
 
-    def reply(self, user_text: str) -> str:
-        self._messages.append({"role": "user", "content": user_text})
+    def reply(self, user_text: str, umore: str = "") -> str:
+        self._messages.append({"role": "user", "content": _con_umore(user_text, umore)})
         return self._chat()
 
     def revise(self, motivo: str = "") -> str:

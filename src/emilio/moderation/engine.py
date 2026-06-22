@@ -304,3 +304,15 @@ default_moderator = Moderator()
 def contains_bad_language(text: str) -> bool:
     """Helper veloce: True se c'è almeno una parolaccia o bestemmia."""
     return not default_moderator.is_clean(text)
+
+
+def contiene_provocazione(text: str) -> bool:
+    """True se il testo contiene un insulto o una contraddizione verso Emilio.
+
+    Più ampio della sola parolaccia: serve a farlo infuriare anche con offese
+    "pulite" (scemo, inutile, ti sbagli, ...). Vedi lexicon.PROVOCAZIONI.
+    """
+    t = text.lower()
+    if any(p in t for p in lexicon.PROVOCAZIONI):
+        return True
+    return contains_bad_language(text)

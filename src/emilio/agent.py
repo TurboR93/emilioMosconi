@@ -28,7 +28,7 @@ from .actuators import Mover, build_mover
 from .ascolto import Ascoltatore, build_ascoltatore
 from .brain import Brain, build_brain
 from .config import EmilioConfig
-from .moderation import Moderator, Report
+from .moderation import Moderator, Report, contiene_provocazione
 from .occhi import ESPRESSIONI, Occhi, build_occhi
 from .persona import Persona
 from .speech import SpeechMetrics, VoiceManager, VoiceProfile, build_voice_manager
@@ -140,8 +140,11 @@ class EmilioAgent:
             self.occhi.imposta("pensa")       # occhi "pensierosi" mentre genera
         except Exception:
             pass
+        # Rileva la provocazione PRIMA di generare: serve a ri-infuriare l'LLM
+        # (che altrimenti si calma ai turni dopo) e a guidare gli occhi.
+        provocato = self._provocato_input(input_utente)
         t0 = time.perf_counter()
-        grezzo_raw = self.brain.reply(input_utente)
+        grezzo_raw = self.brain.reply(input_utente, umore="arrabbiato" if provocato else "")
         latenza_llm = time.perf_counter() - t0
 
         # Stacca il tag di stato d'animo dichiarato dall'LLM (non va pronunciato).
@@ -151,7 +154,7 @@ class EmilioAgent:
         span = self.moderator.span_censura(report)        # vuoto se censura OFF
         censura = bool(span)
         testo_detto = self.moderator.testo_con_bip(testo_grezzo, report)
-        emozione = self._emozione(input_utente, report, tag)
+        emozione = self._emozione(report, tag, provocato)
 
         return RisultatoParlato(
             input_utente=input_utente,
@@ -164,14 +167,15 @@ class EmilioAgent:
             latenza_llm=latenza_llm,
         )
 
-    def _emozione(self, input_utente: str, report: Report, tag: str | None) -> str:
-        """Determina lo stato d'animo: arrabbiato se è stato provocato (insulto
-        nell'input) o se la sua risposta contiene turpiloquio, o se l'LLM lo
-        dichiara; altrimenti il tag dichiarato (se valido), o 'neutro'."""
-        provocato = False
-        if self.config.moderate_input:
-            r_in = self.moderator.review(input_utente)
-            provocato = r_in.has_profanity or r_in.has_blasphemy
+    def _provocato_input(self, input_utente: str) -> bool:
+        """True se l'utente lo ha insultato/contraddetto (anche senza parolacce)."""
+        if not self.config.moderate_input:
+            return False
+        return contiene_provocazione(input_utente)
+
+    def _emozione(self, report: Report, tag: str | None, provocato: bool) -> str:
+        """Stato d'animo: arrabbiato se provocato, o se la risposta contiene
+        turpiloquio, o se l'LLM lo dichiara; altrimenti il tag valido o 'neutro'."""
         if (provocato or report.has_profanity or report.has_blasphemy
                 or tag == "arrabbiato"):
             return "arrabbiato"
