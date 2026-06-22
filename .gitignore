@@ -36,6 +36,16 @@ emilio_voce.mp3
 *.swo
 *~
 
+# Segreti / ambiente locale (chiavi API) — NON committare mai
+.env
+.env.*
+*.local
+
+# Dati grezzi privati (es. export di chat WhatsApp con nomi/numeri di terzi):
+# restano in LOCALE. Si committa solo il vocabolario curato in lexicon.py.
+data/
+ruttiScoreggeBestemmie/
+
 # OS
 .DS_Store
 Thumbs.db

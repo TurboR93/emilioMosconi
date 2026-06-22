@@ -52,6 +52,12 @@ Il cervello dice la sua battuta naturale (**niente riformulazione dell'LLM**); i
 sull'audio**. La censura è **disattivabile dall'amministratore**. Orchestrazione
 in [`agent.py`](src/emilio/agent.py).
 
+Di default la pipeline è in **streaming**: Emilio pronuncia la **prima frase
+appena è pronta**, mentre l'LLM sta ancora scrivendo il resto — così la latenza
+percepita crolla. Ogni frase passa singolarmente dal supervisore. È
+**togglabile**: `EMILIO_STREAMING=0` (o `/streaming off`) torna alla pipeline
+"a blocco unico" (genera tutto, poi parla).
+
 Ogni componente è dietro un'**interfaccia astratta** con una **factory
 `build_*`** e ha un backend **mock** che gira **offline e senza chiavi**: si
 sviluppa tutto sul Mac e si cambia solo la configurazione per il robot.
@@ -67,7 +73,7 @@ sviluppa tutto sul Mac e si cambia solo la configurazione per il robot.
 | [`moderation/`](src/emilio/moderation/) | **Supervisore**: lessico + motore di censura (2ª difesa) |
 | [`speech.py`](src/emilio/speech.py) | Voce: `ElevenLabsSpeaker` / `Pyttsx3Speaker` / `MockSpeaker` |
 | [`occhi.py`](src/emilio/occhi.py) | Occhi LED: `OcchiMock` / `OcchiPreview` (anteprima nel browser) |
-| [`ascolto.py`](src/emilio/ascolto.py) | Riconoscimento vocale (STT): `WhisperAscoltatore` / `MockAscoltatore` |
+| [`ascolto.py`](src/emilio/ascolto.py) | Riconoscimento vocale (STT): `WhisperAscoltatore` (CPU) · `MlxAscoltatore` (Apple Silicon) · `MockAscoltatore`; VAD |
 | [`actuators.py`](src/emilio/actuators.py) | Movimento: `SerialMover` / `MockMover`. *In arrivo: trasporto di rete (Wi-Fi)* |
 | [`agent.py`](src/emilio/agent.py) | Pipeline completa |
 | [`cli.py`](src/emilio/cli.py) | Console di controllo manuale |
@@ -129,6 +135,13 @@ export EMILIO_LOCAL_MODEL=gemma4:12b   # opzionale (default)
 emilio
 ```
 
+> **Velocità.** Il modello è la leva principale: un **4B** (`ollama pull gemma3:4b`,
+> poi `EMILIO_LOCAL_MODEL=gemma3:4b`) risponde 2-4× più rapido di un 12B. Le
+> risposte sono già tenute **brevi** (`EMILIO_MAX_TOKENS`, default 220) per
+> partire prima e — con ElevenLabs — spendere meno crediti. Il modello resta
+> **caldo** in RAM fra un turno e l'altro (`EMILIO_LOCAL_KEEP_ALIVE`, default
+> `30m`), così non si paga il reload dopo una pausa.
+
 > In produzione sul Raspberry si passerà alle **API cloud** (`EMILIO_LLM=claude`,
 > voce ElevenLabs): il Pi non regge l'inferenza locale. È solo un cambio di
 > variabili d'ambiente — il codice non cambia.
@@ -153,18 +166,27 @@ Lo stato d'animo guida gli occhi: l'LLM lo dichiara con un tag iniziale
 Per parlargli davvero, come farà il prodotto finale:
 
 ```bash
-pip install -e ".[listen]"           # faster-whisper (STT offline, italiano)
+# Apple Silicon (consigliato): STT su GPU/ANE, molto più rapido
+pip install -e ".[listen-mlx]"       # mlx-whisper + sounddevice (VAD)
+export EMILIO_ASCOLTO=mlx
+export EMILIO_STT_MODEL=base         # tiny|base|small|medium (qualità vs velocità)
+EMILIO_LLM=local EMILIO_VOICE=offline EMILIO_OCCHI=preview EMILIO_ASCOLTO=mlx emilio
+
+# Alternativa portabile (CPU, anche fuori dal Mac): faster-whisper
+pip install -e ".[listen]"           # faster-whisper + sounddevice (VAD)
 export EMILIO_ASCOLTO=whisper
-export EMILIO_STT_MODEL=small        # tiny|base|small|medium (qualità vs velocità)
-EMILIO_LLM=local EMILIO_VOICE=offline EMILIO_OCCHI=preview EMILIO_ASCOLTO=whisper emilio
 # poi nel prompt:
-#   /ascolta 5    → registra 5s dal microfono e Emilio risponde (una volta)
+#   /ascolta 5    → parla a voce e Emilio risponde (una volta)
 #   /conversa     → modalità voce a MANI LIBERE: parli e lui risponde, a giro
 #                   (di' "basta" o Ctrl-C per uscire)
 ```
 
-> Il microfono su macOS chiede il **permesso** la prima volta (al Terminale/app
-> che lancia Emilio). Lo STT, come l'LLM locale, gira sul **Mac**. Il BIP di
+> **Velocità STT.** Su Mac il backend `mlx` gira su GPU/ANE: molto più rapido di
+> `whisper` (CPU). Di default l'**endpointing VAD** smette di registrare appena
+> **smetti di parlare** (non aspetta N secondi fissi); `EMILIO_STT_VAD=0` torna
+> alla durata fissa. Il microfono su macOS chiede il **permesso** la prima volta
+> (al Terminale/app che lancia Emilio). Il modello viene **pre-caricato** in
+> sottofondo all'avvio. Lo STT, come l'LLM locale, gira sul **Mac**. Il BIP di
 > censura è un **tono** vero (anche con la voce offline, non la parola "bip").
 
 ## Da codice
@@ -233,8 +255,11 @@ Da console: `/censura on|off|stato`. Per ampliare il lessico aggiungi termini in
 | `EMILIO_LOCAL_MODEL` | `gemma4:12b` | modello dell'LLM locale (Ollama) |
 | `EMILIO_LOCAL_URL` | `http://localhost:11434` | endpoint Ollama (API nativa `/api/chat`) |
 | `EMILIO_LOCAL_THINK` | `0` | `1` abilita il ragionamento (lento) dell'LLM locale |
+| `EMILIO_LOCAL_KEEP_ALIVE` | `30m` | quanto Ollama tiene il modello caldo (`-1` = sempre) |
 | `EMILIO_USE_LLM` | `0` | retrocompat: `1` = `claude` se `EMILIO_LLM` non impostato |
 | `EMILIO_MODEL` | `claude-opus-4-8` | modello Claude (cloud) |
+| `EMILIO_MAX_TOKENS` | `220` | tetto risposta: corta = più rapida e meno crediti voce |
+| `EMILIO_STREAMING` | `1` | pipeline voce in streaming (parla a frasi); `0` = blocco unico |
 | `EMILIO_MODERATION` | `1` | supervisione (BIP) on/off all'avvio — disattivabile da admin |
 | `EMILIO_MODERATE_INPUT` | `1` | rileva insulti/provocazioni anche nell'input |
 | `EMILIO_BIP_MARKER` | `[BIP]` | come appare il bip in console/log |
@@ -249,11 +274,14 @@ Da console: `/censura on|off|stato`. Per ampliare il lessico aggiungi termini in
 | `EMILIO_ACTUATORS` | `mock` | `serial`/`mock` (in arrivo: `network`) |
 | `EMILIO_OCCHI` | `mock` | occhi: `mock`/`preview` (anteprima nel browser) |
 | `EMILIO_OCCHI_PORT` | `8473` | porta dell'anteprima occhi nel browser |
-| `EMILIO_ASCOLTO` | `mock` | STT: `mock`/`whisper` (microfono + faster-whisper) |
-| `EMILIO_STT_MODEL` | `small` | modello whisper: `tiny`/`base`/`small`/`medium` |
-| `EMILIO_STT_COMPUTE` | `int8` | tipo di calcolo whisper (`int8`/`float32`) |
-| `EMILIO_STT_SECONDI` | `5` | durata registrazione microfono di default |
-| `EMILIO_MIC_DEVICE` | (auto) | indice microfono avfoundation (macOS) |
+| `EMILIO_ASCOLTO` | `mock` | STT: `mock`/`whisper` (CPU)/`mlx` (GPU/ANE Apple Silicon) |
+| `EMILIO_STT_MODEL` | `base` | modello whisper: `tiny`/`base`/`small`/`medium` |
+| `EMILIO_STT_COMPUTE` | `int8` | tipo di calcolo whisper su CPU (`int8`/`float32`) |
+| `EMILIO_STT_VAD` | `1` | endpointing: smette quando smetti di parlare; `0` = secondi fissi |
+| `EMILIO_STT_MAX` | `12` | (VAD) tetto massimo di registrazione in secondi |
+| `EMILIO_STT_SILENZIO` | `0.8` | (VAD) pausa che chiude il turno, in secondi |
+| `EMILIO_STT_SECONDI` | `5` | durata registrazione se il VAD è disattivato |
+| `EMILIO_MIC_DEVICE` | (auto) | indice microfono avfoundation (macOS, solo ffmpeg) |
 | `EMILIO_SERIAL_PORT` | `/dev/ttyUSB0` | porta seriale motori |
 | `EMILIO_PERSONA` | — | file JSON con una persona custom |
 
@@ -266,8 +294,8 @@ pip install -e ".[dev]"
 python -m pytest                       # oppure: python -m unittest discover -s tests
 ```
 
-54 test su supervisore, voce, censura audio, cervello+occhi e reattività+ascolto.
-Con il **src-layout** i test girano contro il
+77 test su supervisore, voce, censura audio, cervello+occhi, reattività+ascolto e
+streaming+STT mlx. Con il **src-layout** i test girano contro il
 pacchetto **installato** (`pip install -e .`), non contro i sorgenti: esegui
 sempre l'install editable prima dei test.
 
@@ -300,8 +328,10 @@ emilioMosconi/
   forche del diavolo + bocca animata.
 - ✅ **Reattività** — si infuria se insultato/contraddetto (occhi + risposta
   acida bippata), via tag di stato d'animo dell'LLM.
-- ✅ **Ascolto (STT)** — parla a voce: microfono + faster-whisper (`/ascolta`).
-  *In arrivo: wake-word + VAD per il dialogo continuo.*
+- ✅ **Ascolto (STT)** — parla a voce: microfono + faster-whisper/mlx, con
+  **endpointing VAD** (smette quando smetti di parlare). *In arrivo: wake-word.*
+- ✅ **Voce reattiva** — pipeline in **streaming** (parla la prima frase mentre
+  l'LLM genera), togglabile; risposte brevi per bassa latenza e meno crediti.
 - **Carattere** — arricchire la persona "alla Mosconi".
 - **Voce reale** — scegliere/clonare una voce italiana su ElevenLabs, tararla e
   validare il BIP coi timestamp reali.

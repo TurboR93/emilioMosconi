@@ -32,7 +32,7 @@ from . import lexicon
 _LEET = {
     "a": "a4@àáâä",
     "b": "b8",
-    "c": "c(",
+    "c": "c(k",   # k = grafia veneta/“k” (diokan, porko)
     "e": "e3€èéêë",
     "g": "g9",
     "i": "i1ìíîï",

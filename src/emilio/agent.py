@@ -40,6 +40,58 @@ _TAG_EMOZIONE = re.compile(r"""^\s*["'*]*\[\s*([^\]]{1,30}?)\s*\]["'*]*\s*""")
 _EMOZIONI_LLM = {"neutro", "felice", "arrabbiato", "sorpreso", "triste", "pensa"}
 
 
+_TERMINATORI = ".!?…"
+_CHIUSURE = "\"'»)]"
+
+
+def _spezza_frasi(buf: str) -> tuple[list[str], str]:
+    """Estrae le frasi COMPLETE da `buf`, lasciando il resto in sospeso.
+
+    Una frase è completa quando un terminatore (. ! ? …) è seguito da spazio o
+    da fine stringa CON ancora testo dopo: finché il terminatore è in coda al
+    buffer non si sa se la frase è finita (potrebbe arrivare altro nel prossimo
+    pezzo dello stream), quindi resta in sospeso. Ritorna (frasi, resto).
+    """
+    frasi: list[str] = []
+    inizio = 0
+    i = 0
+    n = len(buf)
+    while i < n:
+        if buf[i] in _TERMINATORI:
+            k = i + 1
+            while k < n and buf[k] in _TERMINATORI:    # gruppo di terminatori
+                k += 1
+            term = buf[i:k]
+            # "..." (puntini di sospensione) = pausa, NON fine frase: tira dritto
+            if set(term) == {"."} and len(term) >= 2:
+                i = k
+                continue
+            j = k
+            while j < n and buf[j] in _CHIUSURE:        # virgolette/parentesi finali
+                j += 1
+            if j >= n:        # terminatore in coda: aspetta il prossimo pezzo
+                break
+            if buf[j].isspace():
+                frase = buf[inizio:j].strip()
+                if frase:
+                    frasi.append(frase)
+                inizio = j
+            i = j
+            continue
+        i += 1
+    return frasi, buf[inizio:]
+
+
+def _fondi_metriche(ms: list) -> "SpeechMetrics | None":
+    """Unisce le metriche delle singole frasi in una sola (per il riepilogo)."""
+    ms = [m for m in ms if m]
+    if not ms:
+        return None
+    ttfb = next((m.ttfb for m in ms if m.ttfb is not None), None)
+    return SpeechMetrics(ms[0].backend, ms[0].profilo, ttfb,
+                         sum(m.totale for m in ms), sum(m.caratteri for m in ms))
+
+
 def _estrai_emozione(testo: str) -> tuple[str | None, str]:
     """Stacca un tag '[emozione]' iniziale SOLO se è un'emozione nota.
 
@@ -95,6 +147,20 @@ class EmilioAgent:
         self.mover = mover or build_mover(self.config)
         self.occhi = occhi or build_occhi(self.config)
         self.ascolto = ascolto or build_ascoltatore(self.config)
+        # Pipeline del parlato: streaming (parla frase per frase) o a blocco
+        # unico (vecchia). Scelta all'avvio (EMILIO_STREAMING) e da runtime.
+        self.streaming = getattr(self.config, "streaming", True)
+        # Scalda lo STT in sottofondo: così la prima trascrizione non paga il
+        # caricamento del modello (solo coi backend reali, mai nei test/mock).
+        if getattr(self.config, "stt_backend", "mock").lower() in ("whisper", "reale", "mlx"):
+            import threading
+            threading.Thread(target=self._prewarm_ascolto, daemon=True).start()
+
+    def _prewarm_ascolto(self) -> None:
+        try:
+            self.ascolto.prewarm()
+        except Exception:
+            pass
 
     # -- controllo amministratore sulla censura ---------------------------
 
@@ -190,6 +256,121 @@ class EmilioAgent:
         # copre con un bip solo gli intervalli sporchi (span_censura).
         ris.voce = self._pronuncia(ris.testo_grezzo, ris.span_censura, ris.emozione)
         return ris
+
+    def rispondi(self, input_utente: str) -> RisultatoParlato:
+        """Parla scegliendo la pipeline attiva: streaming o a blocco unico."""
+        if self.streaming:
+            return self.parla_streaming(input_utente)
+        return self.parla(input_utente)
+
+    def set_streaming(self, attivo: bool) -> None:
+        """Attiva/disattiva la pipeline streaming a runtime (admin)."""
+        self.streaming = attivo
+
+    def parla_streaming(self, input_utente: str) -> RisultatoParlato:
+        """Come `parla`, ma pronuncia FRASE PER FRASE mentre l'LLM genera: la
+        prima battuta parte appena pronta, senza aspettare tutta la risposta.
+
+        Ogni frase passa dal supervisore singolarmente (stessa censura via BIP).
+        Il tag di stato d'animo iniziale viene staccato prima di parlare.
+        """
+        try:
+            self.occhi.imposta("pensa")
+        except Exception:
+            pass
+        provocato = self._provocato_input(input_utente)
+        umore = "arrabbiato" if provocato else ""
+
+        buffer = ""
+        tag: str | None = None
+        tag_risolto = False
+        arrabbiato = provocato
+        frasi_grezze: list[str] = []
+        frasi_dette: list[str] = []
+        span_tot: list[tuple[int, int]] = []
+        metriche: list[SpeechMetrics] = []
+        t0 = time.perf_counter()
+        ttft: float | None = None
+
+        prima_fatta = False
+
+        def _parla_frase(frase: str) -> None:
+            nonlocal arrabbiato
+            frase = frase.strip()
+            if not frase:
+                return
+            report = self.moderator.review(frase)
+            span = self.moderator.span_censura(report)
+            if report.has_profanity or report.has_blasphemy:
+                arrabbiato = True
+            try:
+                self.occhi.imposta("arrabbiato" if arrabbiato else "parla")
+            except Exception:
+                pass
+            try:
+                self.mover.move("bocca")
+            except Exception:
+                pass
+            # Passa al TTS ciò che ha GIÀ detto: così la voce continua l'intonazione
+            # invece di "ripartire" a ogni frase (niente salti di tono).
+            prev = " ".join(frasi_grezze)
+            metriche.append(self.voci.say(frase, bleep_spans=span, previous_text=prev))
+            frasi_grezze.append(frase)
+            frasi_dette.append(self.moderator.testo_con_bip(frase, report))
+            span_tot.extend(span)
+
+        for pezzo in self.brain.reply_stream(input_utente, umore=umore):
+            if ttft is None:
+                ttft = time.perf_counter() - t0
+            buffer += pezzo
+            if not tag_risolto:
+                # stacca il tag [emozione] appena c'è abbastanza testo per deciderlo
+                if ("]" in buffer or len(buffer) >= 48
+                        or (buffer.strip() and buffer.lstrip()[0] != "[")):
+                    tag, buffer = _estrai_emozione(buffer)
+                    tag_risolto = True
+                    if tag == "arrabbiato":
+                        arrabbiato = True
+                else:
+                    continue
+            # Parla SUBITO la prima frase (TTFT basso); il resto si accumula e si
+            # dice in un BLOCCO UNICO a fine generazione (meno frammentazione,
+            # tono più coerente). Per le risposte di 1 frase coincide col blocco.
+            if not prima_fatta:
+                frasi, buffer = _spezza_frasi(buffer)
+                if frasi:
+                    _parla_frase(frasi[0])
+                    prima_fatta = True
+                    resto = " ".join(frasi[1:])     # eventuali frasi già pronte
+                    buffer = (resto + " " + buffer) if resto else buffer
+
+        if not tag_risolto:                       # risposta cortissima senza tag chiuso
+            tag, buffer = _estrai_emozione(buffer)
+        if buffer.strip():                         # tutto il resto, in un blocco unico
+            _parla_frase(buffer)
+
+        testo_grezzo = " ".join(frasi_grezze).strip()
+        testo_detto = " ".join(frasi_dette).strip()
+        report = self.moderator.review(testo_grezzo)
+        emozione = self._emozione(report, tag, provocato)
+        riposo = emozione if emozione in ESPRESSIONI and emozione not in (
+            "parla", "pensa", "ascolta", "spento") else "neutro"
+        try:
+            self.occhi.imposta(riposo)
+        except Exception:
+            pass
+
+        return RisultatoParlato(
+            input_utente=input_utente,
+            testo_grezzo=testo_grezzo,
+            testo_detto=testo_detto,
+            report=report,
+            span_censura=self.moderator.span_censura(report),
+            censura_applicata=bool(span_tot),
+            emozione=emozione,
+            latenza_llm=ttft or 0.0,        # tempo al PRIMO token (responsività)
+            voce=_fondi_metriche(metriche),
+        )
 
     def di(self, testo: str) -> SpeechMetrics:
         """Pronuncia un testo arbitrario, bippando le parti sporche sull'audio.

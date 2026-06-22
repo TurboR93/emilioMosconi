@@ -60,6 +60,12 @@ PROFANITY: list[tuple[str, int, bool]] = [
     ("culo", 1, False),
     ("culi", 1, False),
     ("scoreggi", 1, True),
+    # --- ampliamenti dal gruppo (stile veneto) ---
+    ("cojon", 2, True),         # veneto: cojoni, cojone (= coglioni)
+    ("smerd", 2, True),         # smerda, smerdo (smerdante sta nei qualificatori)
+    # slur: inclusi per CENSURARLI (vengono bippati), non per usarli
+    ("negr", 3, True),
+    ("culatton", 3, True),
 ]
 
 # Entità "divine" (da sole NON vengono censurate: servono parlare di religione)
@@ -74,6 +80,7 @@ BLASPHEMY_DIVINE: list[str] = [
     "eucaristia",
     "vergine",
     "padreterno",
+    "dea", "dee",                # "dea madonna" e simili (combo divina+divina via FIXED)
 ]
 
 # Qualificatori offensivi: divina + qualificatore (in qualunque ordine) = bestemmia
@@ -97,6 +104,13 @@ BLASPHEMY_QUALIFIER: list[str] = [
     "bono", "bona",          # "dio bono" (eufemismo)
     "cantante",              # "dio cantante" (eufemismo)
     "impestato", "impestata",
+    # --- ampliamenti dal gruppo (stile veneto/creativo): qualificatori che,
+    #     accostati a un'entità divina, formano bestemmia in qualunque ordine ---
+    "mostro", "serpente", "boja", "boiasso", "orco", "letame", "maial",
+    "nutria", "paguro", "rospo", "pantegana", "lombrico", "pterodattilo",
+    "putrido", "putrida", "putrefatto", "putrefatta", "purulento", "purulenta",
+    "coprofago", "coprofaga", "smerdante", "feroce", "impanato", "pederasta",
+    "bifolco", "malsano", "peloso", "stracane", "stracan", "straporco",
 ]
 
 # Bestemmie/espressioni fisse (anche multi-parola) non generate dalla combinazione
@@ -108,6 +122,10 @@ BLASPHEMY_FIXED: list[str] = [
     "ostia santa",
     "porco il signore",
     "madonna del",          # incipit volgare comune ("madonna del ...")
+    # --- ampliamenti dal gruppo ---
+    "madonnaccia",          # bestemmia "da sola" (non è divina+qualificatore)
+    "dea madonna",          # divina + divina (non generata dalla combinazione)
+    "dea madona",
 ]
 
 # Insulti/contraddizioni che "provocano" Emilio (oltre alle parolacce vere):

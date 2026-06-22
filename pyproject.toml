@@ -35,9 +35,10 @@ llm = ["anthropic>=0.40"]            # cervello Claude (cloud)
 voice = ["requests>=2.31"]           # voce ElevenLabs (streaming) + LLM locale via HTTP
 offline-voice = ["pyttsx3>=2.90"]    # TTS offline (ripiego, voce robotica)
 hardware = ["pyserial>=3.5"]         # controllo motori via seriale
-listen = ["faster-whisper>=1.0"]     # riconoscimento vocale (STT) offline
+listen = ["faster-whisper>=1.0", "sounddevice>=0.4"]   # STT offline (CPU) + VAD mic
+listen-mlx = ["mlx-whisper>=0.4", "sounddevice>=0.4"]  # STT su GPU/ANE Apple Silicon + VAD
 dev = ["pytest>=7"]
-all = ["anthropic>=0.40", "requests>=2.31", "pyttsx3>=2.90", "pyserial>=3.5", "faster-whisper>=1.0"]
+all = ["anthropic>=0.40", "requests>=2.31", "pyttsx3>=2.90", "pyserial>=3.5", "faster-whisper>=1.0", "sounddevice>=0.4"]
 
 [project.scripts]
 emilio = "emilio.cli:main"           # comando `emilio` (oltre a `python -m emilio`)

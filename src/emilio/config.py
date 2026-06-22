@@ -22,7 +22,9 @@ class EmilioConfig:
     # --- Cervello (LLM via API) ----------------------------------------
     use_real_llm: bool = _env_bool("EMILIO_USE_LLM", False)
     model: str = os.environ.get("EMILIO_MODEL", "claude-opus-4-8")
-    max_tokens: int = int(os.environ.get("EMILIO_MAX_TOKENS", "800"))
+    # Risposte BREVI: meno token = generazione più rapida e meno crediti voce
+    # (ElevenLabs fattura a carattere). 220 basta per una o due battute.
+    max_tokens: int = int(os.environ.get("EMILIO_MAX_TOKENS", "220"))
     effort: str = os.environ.get("EMILIO_EFFORT", "medium")  # low|medium|high
     # Backend del cervello: mock | claude | local. Se vuoto, EMILIO_USE_LLM=1
     # equivale a "claude" (retrocompatibilità), altrimenti "mock".
@@ -33,6 +35,15 @@ class EmilioConfig:
     local_llm_model: str = os.environ.get("EMILIO_LOCAL_MODEL", "gemma4:12b")
     local_llm_think: bool = _env_bool("EMILIO_LOCAL_THINK", False)
     local_llm_key: str = os.environ.get("EMILIO_LOCAL_KEY", "")
+    # Quanto Ollama tiene il modello caricato in RAM dopo una risposta. Di
+    # default lo scarica dopo 5 min: col dialogo dal vivo conviene tenerlo caldo
+    # ("30m", oppure "-1" = per sempre) così non si paga il reload a ogni pausa.
+    local_llm_keep_alive: str = os.environ.get("EMILIO_LOCAL_KEEP_ALIVE", "30m")
+    # Pipeline del parlato: streaming (Emilio parla la PRIMA frase appena pronta,
+    # mentre l'LLM genera ancora -> latenza percepita molto più bassa) oppure la
+    # vecchia "a blocco unico" (genera tutto, poi parla). Scelta all'avvio:
+    # EMILIO_STREAMING=0 per tornare alla vecchia. Anche da runtime: /streaming.
+    streaming: bool = _env_bool("EMILIO_STREAMING", True)
 
     # --- Supervisione / censura (BIP sull'audio) -----------------------
     # Attivabile/disattivabile dall'amministratore (anche a runtime).
@@ -79,12 +90,20 @@ class EmilioConfig:
     # --- Ascolto (STT / microfono) -------------------------------------
     # Per parlare a Emilio a voce. mock = frase fissa (test); whisper = microfono
     # reale + faster-whisper (offline, italiano) sul Mac.
-    stt_backend: str = os.environ.get("EMILIO_ASCOLTO", "mock")  # mock|whisper
-    stt_model: str = os.environ.get("EMILIO_STT_MODEL", "small")  # tiny|base|small|medium
+    # mock | whisper (faster-whisper, CPU) | mlx (faster-whisper-mlx su GPU/ANE
+    # Apple Silicon: molto più rapido sul Mac).
+    stt_backend: str = os.environ.get("EMILIO_ASCOLTO", "mock")  # mock|whisper|mlx
+    stt_model: str = os.environ.get("EMILIO_STT_MODEL", "base")  # tiny|base|small|medium
     stt_lingua: str = os.environ.get("EMILIO_STT_LANG", "it")
     stt_compute: str = os.environ.get("EMILIO_STT_COMPUTE", "int8")  # int8|int8_float32|float32
     mic_device: str = os.environ.get("EMILIO_MIC_DEVICE", "")    # indice avfoundation; vuoto=auto
     stt_secondi: float = float(os.environ.get("EMILIO_STT_SECONDI", "5"))
+    # Endpointing: invece di registrare N secondi fissi, smette quando smetti di
+    # parlare (VAD a energia, via sounddevice). EMILIO_STT_VAD=0 -> torna ai
+    # secondi fissi. stt_max = tetto massimo; stt_silenzio = quanta pausa serve.
+    stt_vad: bool = _env_bool("EMILIO_STT_VAD", True)
+    stt_max: float = float(os.environ.get("EMILIO_STT_MAX", "12"))
+    stt_silenzio: float = float(os.environ.get("EMILIO_STT_SILENZIO", "0.8"))
 
     # --- Persona --------------------------------------------------------
     persona_path: str | None = os.environ.get("EMILIO_PERSONA")

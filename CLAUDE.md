@@ -23,6 +23,16 @@ censura parolacce/bestemmie ed è **disattivabile dall'amministratore**.
 Pipeline (in [`src/emilio/agent.py`](src/emilio/agent.py)):
 `input → brain(LLM) → moderator → voce(TTS) + actuators(movimento)`.
 
+**Pipeline in streaming, togglabile** (`EMILIO_STREAMING`, default ON; CLI
+`/streaming on|off`; runtime `agent.streaming`/`set_streaming`): `agent.rispondi`
+sceglie `parla_streaming` o `parla`. `parla_streaming` consuma `brain.reply_stream`
+(generatore di pezzi), stacca il tag emozione dalla testa, spezza in frasi con
+`_spezza_frasi` (i `...` sono **pausa**, non fine frase) e pronuncia **ogni frase
+appena completa** (moderata singolarmente, col suo BIP) mentre l'LLM genera il
+resto → TTFT basso. Risposte tenute **brevi** (persona + `EMILIO_MAX_TOKENS`,
+default 220): parte prima e con ElevenLabs spende meno crediti. La vecchia `parla`
+(genera tutto, poi parla) resta per `/di`, i test e `EMILIO_STREAMING=0`.
+
 **Censura via BIP, MIRATA** (modello deciso col committente): il cervello **NON
 riformula**; il supervisore individua parolacce/bestemmie e restituisce gli span
 da bippare (`Moderator.span_censura` via `_riduci_match`) — censura "alla veneta":
@@ -44,16 +54,16 @@ viene mai udita).
 - **Lingua: italiano.** Nomi di funzioni/variabili, commenti, docstring, output
   utente sono in italiano. Continua così.
 - **Core solo stdlib.** Il nucleo non ha dipendenze. Le librerie esterne
-  (`anthropic`, `requests`, `pyttsx3`, `pyserial`, `faster-whisper`) sono
-  **opzionali** e vanno importate **pigramente** dentro il backend che le usa,
-  mai a livello di modulo.
+  (`anthropic`, `requests`, `pyttsx3`, `pyserial`, `faster-whisper`, `mlx-whisper`,
+  `sounddevice`) sono **opzionali** e vanno importate **pigramente** dentro il
+  backend che le usa, mai a livello di modulo.
 - **Pattern a backend intercambiabili.** Ogni capacità ha un'**ABC** + una
   **factory `build_*`** + un backend **mock** (offline, senza chiavi) e uno
   reale: `Brain`/`build_brain`, `Speaker`+`VoiceManager`/`build_voice_manager`,
   `Mover`/`build_mover`, `Occhi`/`build_occhi`, `Ascoltatore`/`build_ascoltatore`.
   **Aggiungere nuove capacità così** (vedi sotto).
 - **Mock-first.** Tutto deve girare offline e senza chiavi (`python -m emilio`).
-  I 54 test non devono mai richiedere rete o segreti.
+  I 77 test non devono mai richiedere rete o segreti.
 - **Config via env.** Ogni opzione sta in [`config.py`](src/emilio/config.py)
   (`EmilioConfig`, sovrascrivibile da variabili `EMILIO_*`). Non hardcodare.
 
@@ -69,7 +79,7 @@ viene mai udita).
 ```bash
 source .venv/bin/activate              # venv Python 3.11
 pip install -e ".[dev]"                # editable + pytest (necessario col src-layout)
-python -m pytest                       # 54 test (o: python -m unittest discover -s tests)
+python -m pytest                       # 77 test (o: python -m unittest discover -s tests)
 emilio                                 # avvio (o: python -m emilio)
 ```
 
@@ -84,10 +94,16 @@ per disattivare il ragionamento lento — NON è l'API OpenAI `/v1`), per svilup
 offline sul Mac. Si passa a Claude (cloud) o al locale **solo via env**, senza
 toccare la pipeline. Env del locale: `EMILIO_LOCAL_URL` (default
 `http://localhost:11434`), `EMILIO_LOCAL_MODEL` (default `gemma4:12b`),
-`EMILIO_LOCAL_THINK`, `EMILIO_LOCAL_KEY`. Tutti i cervelli espongono
-`reply(user_text, umore=...)`: con `umore="arrabbiato"` (provocazione rilevata) il
-prompt utente riceve una spinta a rispondere infuriato. **Onboard sul Pi si userà
-il cloud** (`claude` + ElevenLabs): il Raspberry non regge l'inferenza locale.
+`EMILIO_LOCAL_THINK`, `EMILIO_LOCAL_KEY`, `EMILIO_LOCAL_KEEP_ALIVE` (default `30m`:
+tiene il modello caldo in RAM, niente reload dopo una pausa). Tutti i cervelli
+espongono `reply(user_text, umore=...)` **e** `reply_stream(...)` (generatore di
+pezzi; il default dell'ABC fa un blocco unico, `LocalBrain`/`ClaudeBrain` fanno
+streaming vero — Ollama `stream:true`, Anthropic `messages.stream`). Con
+`umore="arrabbiato"` (provocazione rilevata) il prompt utente riceve una spinta a
+rispondere infuriato. **Velocità**: la leva principale è un modello più piccolo
+(es. `gemma3:4b`, 2-4× più rapido del 12B) + risposte brevi (`EMILIO_MAX_TOKENS`,
+default 220). **Onboard sul Pi si userà il cloud** (`claude` + ElevenLabs): il
+Raspberry non regge l'inferenza locale.
 
 ## Occhi (importantissimi)
 
@@ -115,13 +131,22 @@ ascolta mentre ascolta). In futuro `OcchiLed` sul Pi (LED RGB indirizzabili).
   risposta contiene turpiloquio o se il tag è `[arrabbiato]`. Allora occhi = forche
   del diavolo + risposta acida bippata. La persona ([persona.py](src/emilio/persona.py))
   è tarata per esplodere (la censura è a valle, non nel prompt). `EMILIO_MODERATE_INPUT`.
+- **Bestemmie come intercalare**: la persona infila parolacce/bestemmie **in
+  mezzo** alle frasi (non ammucchiate alla fine) — `[arrabbiato] Ma porco dio, cosa
+  stai... dio can... dicendo?!`. Il `MockBrain.ARRABBIATO` segue lo stesso stile.
 - **Ascolto (STT)**: [ascolto.py](src/emilio/ascolto.py) — `Ascoltatore` ABC +
-  `build_ascoltatore` (`EMILIO_ASCOLTO=mock|whisper`). `WhisperAscoltatore`
-  registra dal microfono (ffmpeg avfoundation) e trascrive con faster-whisper
-  (offline, IT) con `vad_filter` (anti-allucinazione sul silenzio). CLI:
-  `/ascolta [secondi]` (un turno) e `/conversa [secondi]` (mani libere). Env:
-  `EMILIO_STT_MODEL` (default `small`), `EMILIO_STT_LANG`, `EMILIO_STT_COMPUTE`,
-  `EMILIO_MIC_DEVICE`, `EMILIO_STT_SECONDI`. Gira sul Mac (non sul Pi).
+  `build_ascoltatore` (`EMILIO_ASCOLTO=mock|whisper|mlx`). Base comune
+  `AscoltatoreMic`; `WhisperAscoltatore` (faster-whisper, **CPU**, `vad_filter`
+  anti-allucinazione) e `MlxAscoltatore` (**mlx-whisper su GPU/ANE Apple Silicon**,
+  molto più rapido sul Mac; repo MLX via `_risolvi_repo_mlx`). **Endpointing VAD**
+  (default ON, `EMILIO_STT_VAD`): registra con `sounddevice` finché parli e smette
+  dopo una pausa (`_vad_stato`, soglia a energia auto-calibrata); senza sounddevice
+  o con VAD off ripiega su ffmpeg a tempo fisso. Il modello è **pre-caricato** in
+  sottofondo all'avvio (`agent._prewarm_ascolto`, thread daemon). CLI:
+  `/ascolta [secondi]`, `/conversa [secondi]`. Env: `EMILIO_STT_MODEL` (default
+  `base`), `EMILIO_STT_LANG`, `EMILIO_STT_COMPUTE`, `EMILIO_STT_VAD`,
+  `EMILIO_STT_MAX`, `EMILIO_STT_SILENZIO`, `EMILIO_STT_SECONDI`, `EMILIO_MIC_DEVICE`.
+  Extra: `.[listen]` (faster-whisper) o `.[listen-mlx]` (mlx). Gira sul Mac (non sul Pi).
 
 ## Come estendere (la libertà di sviluppo futuro è già predisposta)
 

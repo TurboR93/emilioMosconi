@@ -16,6 +16,7 @@ Comandi:
     /occhi guarda <dir>     fai guardare gli occhi (centro/sinistra/destra/su/giu)
     /ascolta [secondi]      parla a VOCE una volta: registra dal microfono e risponde
     /conversa [secondi]     modalità voce a MANI LIBERE: parli e lui risponde, a giro
+    /streaming on|off|stato pipeline voce: streaming (parla a frasi) o a blocco unico
     /censura on|off|stato   controllo amministratore della supervisione
     /mod <testo>            analizza un testo col supervisore (debug)
     /reset                  azzera la memoria della conversazione
@@ -35,6 +36,17 @@ from .occhi import ESPRESSIONI
 
 
 AIUTO = __doc__
+
+
+def _rispondi(agent: EmilioAgent, testo: str) -> None:
+    """Fa rispondere Emilio con la pipeline attiva (streaming o blocco) e
+    stampa il riepilogo di emozione/latenza/censura."""
+    ris = agent.rispondi(testo)
+    voce = f" | {ris.voce}" if ris.voce else ""
+    etichetta = "TTFT" if agent.streaming else "latenza LLM"
+    print(f"   [emozione: {ris.emozione} | {etichetta}: {ris.latenza_llm*1000:.0f}ms{voce}]")
+    if ris.censura_applicata:
+        print(f"   [supervisore: {ris.report.summary()} | bip: {len(ris.span_censura)}]")
 
 
 def _stampa_azioni() -> None:
@@ -121,11 +133,7 @@ def _comando(agent: EmilioAgent, linea: str) -> bool:
             return True
         print(f"🎤 Hai detto: {testo!r}")
         if testo.strip():
-            ris = agent.parla(testo)
-            voce = f" | {ris.voce}" if ris.voce else ""
-            print(f"   [emozione: {ris.emozione} | latenza LLM: {ris.latenza_llm*1000:.0f}ms{voce}]")
-            if ris.censura_applicata:
-                print(f"   [supervisore: {ris.report.summary()} | bip: {len(ris.span_censura)}]")
+            _rispondi(agent, testo)
     elif cmd == "/conversa":
         sec = None
         if args:
@@ -153,13 +161,19 @@ def _comando(agent: EmilioAgent, linea: str) -> bool:
                     break
                 if not testo.strip():
                     continue
-                ris = agent.parla(testo)
-                voce = f" | {ris.voce}" if ris.voce else ""
-                print(f"   [emozione: {ris.emozione} | latenza LLM: {ris.latenza_llm*1000:.0f}ms{voce}]")
-                if ris.censura_applicata:
-                    print(f"   [supervisore: {ris.report.summary()} | bip: {len(ris.span_censura)}]")
+                _rispondi(agent, testo)
         except KeyboardInterrupt:
             print("\n(uscito dalla modalità voce)")
+    elif cmd == "/streaming":
+        sub = args[0].lower() if args else "stato"
+        if sub == "on":
+            agent.set_streaming(True)
+            print("✅ Pipeline STREAMING attiva (parla frase per frase).")
+        elif sub == "off":
+            agent.set_streaming(False)
+            print("✅ Pipeline a BLOCCO UNICO attiva (genera tutto, poi parla).")
+        else:
+            print(f"Pipeline: {'streaming' if agent.streaming else 'blocco unico'}")
     elif cmd == "/censura":
         sub = args[0].lower() if args else "stato"
         if sub == "on":
@@ -193,6 +207,7 @@ def main(argv: list[str] | None = None) -> int:
     print("=== Emilio è in linea ===")
     print(f"Cervello: {cervello} | Voce: {agent.voce_attiva} | "
           f"Occhi: {config.eyes_backend} | Ascolto: {config.stt_backend} | "
+          f"Pipeline: {'streaming' if agent.streaming else 'blocco'} | "
           f"Supervisione (BIP): {'ON' if agent.moderazione_attiva else 'OFF'}")
     print("Digita /aiuto per i comandi, /ascolta per parlare a voce, /esci per uscire.\n")
 
@@ -208,12 +223,7 @@ def main(argv: list[str] | None = None) -> int:
             if not _comando(agent, linea):
                 break
         else:
-            ris = agent.parla(linea)
-            voce = f" | {ris.voce}" if ris.voce else ""
-            print(f"   [emozione: {ris.emozione} | latenza LLM: {ris.latenza_llm*1000:.0f}ms{voce}]")
-            if ris.censura_applicata:
-                print(f"   [supervisore: {ris.report.summary()} | "
-                      f"bip applicati: {len(ris.span_censura)}]")
+            _rispondi(agent, linea)
 
     print("Alla prossima!")
     return 0

@@ -105,9 +105,15 @@ def default_profiles(config) -> list[VoiceProfile]:
 
 class Speaker(ABC):
     @abstractmethod
-    def say(self, text: str, bleep_spans: list[tuple[int, int]] | None = None) -> SpeechMetrics:
+    def say(self, text: str, bleep_spans: list[tuple[int, int]] | None = None,
+            previous_text: str = "", next_text: str = "") -> SpeechMetrics:
         """Pronuncia `text`. Se `bleep_spans` è valorizzato, copre quegli
-        intervalli di CARATTERE con un BIP sull'audio (censura amministratore)."""
+        intervalli di CARATTERE con un BIP sull'audio (censura amministratore).
+
+        `previous_text`/`next_text` danno al TTS il contesto di ciò che è già
+        stato detto / verrà detto: serve nella pipeline streaming perché le frasi
+        sintetizzate separatamente mantengano un'intonazione CONTINUA (niente
+        salti di tono). I backend che non lo supportano li ignorano."""
         ...
 
 
@@ -116,7 +122,8 @@ class MockSpeaker(Speaker):
         self.profilo = profilo
         self.bip_marker = bip_marker
 
-    def say(self, text: str, bleep_spans: list[tuple[int, int]] | None = None) -> SpeechMetrics:
+    def say(self, text: str, bleep_spans: list[tuple[int, int]] | None = None,
+            previous_text: str = "", next_text: str = "") -> SpeechMetrics:
         t0 = time.perf_counter()
         mostrato = (audio_bip.applica_span(text, bleep_spans, self.bip_marker)
                     if bleep_spans else text)
@@ -156,7 +163,8 @@ class Pyttsx3Speaker(Speaker):
         if scelta:
             self._engine.setProperty("voice", scelta)
 
-    def say(self, text: str, bleep_spans: list[tuple[int, int]] | None = None) -> SpeechMetrics:
+    def say(self, text: str, bleep_spans: list[tuple[int, int]] | None = None,
+            previous_text: str = "", next_text: str = "") -> SpeechMetrics:
         t0 = time.perf_counter()
         if bleep_spans and self._say_con_bip(text, bleep_spans):
             return SpeechMetrics("pyttsx3", self.profilo, None,
@@ -255,8 +263,8 @@ class ElevenLabsSpeaker(Speaker):
         self.audio_out = audio_out
         self.bip_dir = bip_dir
 
-    def _payload(self, text: str) -> dict:
-        return {
+    def _payload(self, text: str, previous_text: str = "", next_text: str = "") -> dict:
+        p = {
             "text": text,
             "model_id": self.p.model,
             "voice_settings": {
@@ -266,13 +274,21 @@ class ElevenLabsSpeaker(Speaker):
                 "speed": self.p.speed,
             },
         }
+        # Contesto per un'intonazione CONTINUA fra frasi sintetizzate a parte.
+        if previous_text:
+            p["previous_text"] = previous_text
+        if next_text:
+            p["next_text"] = next_text
+        return p
 
-    def say(self, text: str, bleep_spans: list[tuple[int, int]] | None = None) -> SpeechMetrics:
+    def say(self, text: str, bleep_spans: list[tuple[int, int]] | None = None,
+            previous_text: str = "", next_text: str = "") -> SpeechMetrics:
         if bleep_spans:
-            return self._say_censura(text, bleep_spans)
-        return self._say_diretto(text)
+            return self._say_censura(text, bleep_spans, previous_text, next_text)
+        return self._say_diretto(text, previous_text, next_text)
 
-    def _say_diretto(self, text: str) -> SpeechMetrics:
+    def _say_diretto(self, text: str, previous_text: str = "",
+                     next_text: str = "") -> SpeechMetrics:
         """Sintesi normale: streaming a bassa latenza, o file di ripiego."""
         import requests
 
@@ -289,7 +305,8 @@ class ElevenLabsSpeaker(Speaker):
             player_cmd = _stream_player()
             if player_cmd is not None:
                 with requests.post(url, headers=headers, params=params,
-                                   json=self._payload(text), stream=True, timeout=30) as r:
+                                   json=self._payload(text, previous_text, next_text),
+                                   stream=True, timeout=30) as r:
                     r.raise_for_status()
                     proc = subprocess.Popen(player_cmd, stdin=subprocess.PIPE)
                     for chunk in r.iter_content(chunk_size=4096):
@@ -311,7 +328,7 @@ class ElevenLabsSpeaker(Speaker):
         url = self.BASE.format(voice_id=self.p.voice_id)
         params = {"output_format": self.p.output_format}
         resp = requests.post(url, headers=headers, params=params,
-                             json=self._payload(text), timeout=30)
+                             json=self._payload(text, previous_text, next_text), timeout=30)
         resp.raise_for_status()
         ttfb = time.perf_counter() - t0
         with open(self.audio_out, "wb") as f:
@@ -321,7 +338,8 @@ class ElevenLabsSpeaker(Speaker):
         return SpeechMetrics("elevenlabs", self.p.name, ttfb,
                              time.perf_counter() - t0, len(text))
 
-    def _say_censura(self, text: str, bleep_spans: list[tuple[int, int]]) -> SpeechMetrics:
+    def _say_censura(self, text: str, bleep_spans: list[tuple[int, int]],
+                     previous_text: str = "", next_text: str = "") -> SpeechMetrics:
         """Sintesi CON timestamp + BIP sugli intervalli sporchi.
 
         Chiede a ElevenLabs l'audio con l'allineamento carattere→tempo
@@ -336,7 +354,7 @@ class ElevenLabsSpeaker(Speaker):
         headers = {"xi-api-key": self.api_key, "content-type": "application/json"}
         url = self.BASE.format(voice_id=self.p.voice_id) + "/with-timestamps"
         params = {"output_format": self.p.output_format}
-        payload = self._payload(text)
+        payload = self._payload(text, previous_text, next_text)
         # Niente normalizzazione del testo: serve un allineamento 1:1 coi
         # caratteri (altrimenti gli offset del moderatore non combaciano).
         payload["apply_text_normalization"] = "off"
@@ -377,7 +395,8 @@ class ElevenLabsSpeaker(Speaker):
             print(f"⚠️  Bip audio non riuscito ({e}); ripiego sicuro senza turpiloquio.")
 
         # Ripiego sicuro: niente parolaccia udibile.
-        return self._say_diretto(audio_bip.testo_sicuro(text, bleep_spans))
+        return self._say_diretto(audio_bip.testo_sicuro(text, bleep_spans),
+                                 previous_text, next_text)
 
 
 # ---------------------------------------------------------------------------
@@ -448,8 +467,9 @@ class VoiceManager:
         return MockSpeaker(profilo=p.name,
                            bip_marker=getattr(self.config, "bip_marker", "[BIP]"))
 
-    def say(self, text: str, bleep_spans: list[tuple[int, int]] | None = None) -> SpeechMetrics:
-        return self.speaker.say(text, bleep_spans)
+    def say(self, text: str, bleep_spans: list[tuple[int, int]] | None = None,
+            previous_text: str = "", next_text: str = "") -> SpeechMetrics:
+        return self.speaker.say(text, bleep_spans, previous_text, next_text)
 
 
 def list_elevenlabs_voices(api_key: str) -> list[dict]:

@@ -76,6 +76,11 @@ Principi:
 - **Difesa a due livelli** contro il turpiloquio incontrollato: il *system prompt*
   guida l'LLM; il *supervisore* interviene comunque sull'audio (rete di sicurezza).
   Ma quando Emilio è provocato DEVE sboccare: lì il BIP è il punto, non un errore.
+- **Pipeline in streaming, togglabile** (`EMILIO_STREAMING`, default ON;
+  `/streaming on|off`): `agent.rispondi` → `parla_streaming` consuma `brain.reply_stream`
+  e pronuncia **ogni frase appena pronta** (moderata singolarmente) mentre l'LLM
+  genera il resto → latenza percepita molto più bassa. `EMILIO_STREAMING=0` torna
+  alla `parla` "a blocco unico". Dettagli in §7 e §8.
 
 ---
 
@@ -83,7 +88,7 @@ Principi:
 
 ```
 emilioMosconi/
-├── pyproject.toml       PEP 621: core stdlib; extra llm/voice/offline-voice/hardware/listen/dev/all
+├── pyproject.toml       PEP 621: core stdlib; extra llm/voice/offline-voice/hardware/listen/listen-mlx/dev/all
 ├── README.md            uso
 ├── CLAUDE.md            guida per sessioni Claude Code
 ├── docs/
@@ -99,11 +104,11 @@ emilioMosconi/
 │   ├── speech.py        voce: ElevenLabs / pyttsx3 / mock
 │   ├── audio_bip.py     logica pura del BIP (span→tempo, ffmpeg)
 │   ├── occhi.py         occhi LED: mock / anteprima web (faccia di Emiglio)
-│   ├── ascolto.py       STT: mock / faster-whisper (microfono)
+│   ├── ascolto.py       STT: mock / faster-whisper (CPU) / mlx (Apple Silicon) + VAD
 │   ├── actuators.py     movimento: seriale / mock
 │   ├── cli.py           console di controllo
 │   └── assets/beeps/    file BIP (bip_classico.wav)
-└── tests/               54 test
+└── tests/               77 test
 ```
 
 > Con il **src-layout** i test e `python -m emilio` funzionano **solo dopo**
@@ -212,12 +217,18 @@ iniziale (vedi §11).
   disattivare il ragionamento lento dei modelli (es. Gemma 4: col thinking acceso
   la latenza esplode ~30s). Default `gemma4:12b`. Env: `EMILIO_LOCAL_URL` (default
   `http://localhost:11434`), `EMILIO_LOCAL_MODEL`, `EMILIO_LOCAL_THINK`,
-  `EMILIO_LOCAL_KEY`.
+  `EMILIO_LOCAL_KEY`, `EMILIO_LOCAL_KEEP_ALIVE` (default `30m`: tiene il modello
+  caldo in RAM, niente reload dopo una pausa).
 
-Tutti i cervelli espongono `reply(user_text, umore="")`: con `umore="arrabbiato"`
-(provocazione rilevata, vedi §11) il testo utente riceve una spinta a rispondere
-infuriato. `revise()` esiste ancora ma **non è più usato** (la censura è il BIP,
-niente riformulazione).
+Tutti i cervelli espongono `reply(user_text, umore="")` **e** `reply_stream(...)`
+(generatore di pezzi per lo streaming: il default dell'ABC emette un blocco unico,
+`LocalBrain`/`ClaudeBrain` fanno streaming vero — Ollama `stream:true`, Anthropic
+`messages.stream`). Con `umore="arrabbiato"` (provocazione rilevata, vedi §11) il
+testo utente riceve una spinta a rispondere infuriato. **Velocità**: la leva
+principale è un modello più piccolo (es. `gemma3:4b`, 2-4× più rapido del 12B) +
+risposte brevi (persona "1-2 frasi" + `EMILIO_MAX_TOKENS`, default 220).
+`revise()` esiste ancora ma **non è più usato** (la censura è il BIP, niente
+riformulazione).
 
 ---
 
@@ -240,8 +251,13 @@ Selezione: `EMILIO_VOICE=veloce`, o `agent.set_voce(...)`/`/voce`. La voce
 maschile) sceglie per nome/id, con ripiego su Alice se assente.
 
 - **Bassa latenza**: streaming `/stream` + Flash v2.5; `optimize_streaming_latency`.
-- **Misurabilità**: ogni `say()` restituisce `SpeechMetrics` (TTFB + totale); la
-  pipeline riporta anche `RisultatoParlato.latenza_llm`. Da console `/voce test`.
+  In più la **pipeline streaming** (§3) parla frase per frase mentre l'LLM genera:
+  `agent.parla_streaming` spezza il flusso con `_spezza_frasi` (i `...` sono pausa,
+  non fine frase) e pronuncia ogni frase appena completa, ciascuna moderata col suo
+  BIP. Togglabile (`EMILIO_STREAMING`/`/streaming`).
+- **Misurabilità**: ogni `say()` restituisce `SpeechMetrics` (TTFB + totale); in
+  streaming `RisultatoParlato.latenza_llm` riporta il **TTFT** (tempo al primo
+  token). Da console `/voce test`.
 - **Player**: streaming via `mpg123`/`ffplay`; `ffmpeg` **richiesto** per il BIP.
 
 ---
@@ -270,18 +286,31 @@ o `arrabbiato` mentre parla, `ascolta` mentre ascolta. Sul corpo: futuro backend
 ## 10. L'ascolto (STT, microfono)
 
 `ascolto.py` — **a monte** della pipeline. `Ascoltatore` ABC + `build_ascoltatore`
-(`EMILIO_ASCOLTO=mock|whisper`).
+(`EMILIO_ASCOLTO=mock|whisper|mlx`). Base comune `AscoltatoreMic` (registrazione),
+le sottoclassi implementano solo `trascrivi`.
 
 - **`MockAscoltatore`** — ritorna una frase fissa (test).
-- **`WhisperAscoltatore`** — registra dal microfono (`ffmpeg`, avfoundation su
-  macOS) e trascrive con **faster-whisper** (offline, italiano) con `vad_filter`
-  (salta il silenzio → niente allucinazioni tipo "Sottotitoli e revisione...").
+- **`WhisperAscoltatore`** — **faster-whisper** su **CPU** (offline, italiano) con
+  `vad_filter` (salta il silenzio → niente allucinazioni tipo "Sottotitoli...").
+- **`MlxAscoltatore`** — **mlx-whisper** su **GPU/ANE di Apple Silicon**: sul Mac
+  è molto più rapido della CPU. Repo dei pesi MLX risolto da `_risolvi_repo_mlx`
+  (`base` → `mlx-community/whisper-base-mlx`).
 
-Gira sul **Mac**, non sul Pi. Env: `EMILIO_STT_MODEL` (default `small`),
-`EMILIO_STT_LANG` (it), `EMILIO_STT_COMPUTE` (int8, ripiego float32),
-`EMILIO_MIC_DEVICE` (indice avfoundation, vuoto=auto), `EMILIO_STT_SECONDI`
-(default 5). CLI: `/ascolta [secondi]` (un turno) e `/conversa [secondi]` (mani
-libere). Il microfono su macOS richiede il permesso al terminale.
+**Registrazione**: di default **endpointing VAD** (`EMILIO_STT_VAD=1`) — registra
+con `sounddevice` finché parli e **smette dopo una pausa** (`_vad_stato`, soglia a
+energia auto-calibrata sul rumore di fondo; tetto `EMILIO_STT_MAX`, coda di
+silenzio `EMILIO_STT_SILENZIO`). Senza `sounddevice` o con VAD off ripiega su
+`ffmpeg` a tempo fisso (`EMILIO_STT_SECONDI`). Il modello viene **pre-caricato**
+in sottofondo all'avvio (`agent._prewarm_ascolto`, thread daemon) così la prima
+trascrizione non paga il caricamento.
+
+Gira sul **Mac**, non sul Pi. Env: `EMILIO_STT_MODEL` (default `base`),
+`EMILIO_STT_LANG` (it), `EMILIO_STT_COMPUTE` (int8, solo CPU), `EMILIO_STT_VAD`,
+`EMILIO_STT_MAX`, `EMILIO_STT_SILENZIO`, `EMILIO_STT_SECONDI`, `EMILIO_MIC_DEVICE`
+(indice avfoundation per ffmpeg; il VAD usa il microfono di default). Extra:
+`.[listen]` (CPU) o `.[listen-mlx]` (Apple Silicon). CLI: `/ascolta [secondi]`
+(un turno) e `/conversa [secondi]` (mani libere). Il microfono su macOS richiede
+il permesso al terminale.
 
 ---
 
@@ -339,9 +368,11 @@ Dettaglio componenti del corpo in [`HARDWARE.md`](HARDWARE.md).
 | `EMILIO_LLM` | (vuoto) | cervello: `mock`/`claude`/`local` (vuoto = `claude` se `EMILIO_USE_LLM=1`, altrimenti `mock`) |
 | `EMILIO_USE_LLM` | `0` | retrocompat: `1` = claude |
 | `EMILIO_MODEL` | `claude-opus-4-8` | modello Claude |
-| `EMILIO_MAX_TOKENS` | `800` | lunghezza massima risposta |
+| `EMILIO_MAX_TOKENS` | `220` | tetto risposta: corta = più rapida e meno crediti voce |
+| `EMILIO_STREAMING` | `1` | pipeline voce in streaming (parla a frasi); `0` = blocco unico |
 | `EMILIO_EFFORT` | `medium` | `low`/`medium`/`high` (Claude) |
 | `EMILIO_LOCAL_URL` | `http://localhost:11434` | endpoint Ollama (API nativa) |
+| `EMILIO_LOCAL_KEEP_ALIVE` | `30m` | quanto Ollama tiene il modello caldo (`-1` = sempre) |
 | `EMILIO_LOCAL_MODEL` | `gemma4:12b` | modello LLM locale |
 | `EMILIO_LOCAL_THINK` | `0` | `1` abilita il ragionamento (lento) |
 | `EMILIO_LOCAL_KEY` | — | bearer token opzionale per Ollama |
@@ -359,12 +390,15 @@ Dettaglio componenti del corpo in [`HARDWARE.md`](HARDWARE.md).
 | `EMILIO_AUDIO_OUT` | `emilio_voce.mp3` | file audio generato |
 | `EMILIO_OCCHI` | `mock` | occhi: `mock`/`preview` |
 | `EMILIO_OCCHI_PORT` | `8473` | porta anteprima web occhi |
-| `EMILIO_ASCOLTO` | `mock` | STT: `mock`/`whisper` |
-| `EMILIO_STT_MODEL` | `small` | modello whisper (`tiny`/`base`/`small`/`medium`) |
+| `EMILIO_ASCOLTO` | `mock` | STT: `mock`/`whisper` (CPU)/`mlx` (Apple Silicon) |
+| `EMILIO_STT_MODEL` | `base` | modello whisper (`tiny`/`base`/`small`/`medium`) |
 | `EMILIO_STT_LANG` | `it` | lingua STT |
-| `EMILIO_STT_COMPUTE` | `int8` | tipo di calcolo (`int8`/`float32`) |
-| `EMILIO_MIC_DEVICE` | (auto) | indice microfono avfoundation |
-| `EMILIO_STT_SECONDI` | `5` | durata registrazione |
+| `EMILIO_STT_COMPUTE` | `int8` | tipo di calcolo su CPU (`int8`/`float32`) |
+| `EMILIO_STT_VAD` | `1` | endpointing: smette quando smetti di parlare; `0` = secondi fissi |
+| `EMILIO_STT_MAX` | `12` | (VAD) tetto massimo di registrazione in secondi |
+| `EMILIO_STT_SILENZIO` | `0.8` | (VAD) pausa che chiude il turno, in secondi |
+| `EMILIO_MIC_DEVICE` | (auto) | indice microfono avfoundation (solo ffmpeg) |
+| `EMILIO_STT_SECONDI` | `5` | durata registrazione se il VAD è disattivato |
 | `EMILIO_ACTUATORS` | `mock` | `serial`/`mock` |
 | `EMILIO_SERIAL_PORT` | `/dev/ttyUSB0` | porta seriale motori |
 | `EMILIO_SERIAL_BAUD` | `9600` | baud rate seriale |
@@ -385,7 +419,7 @@ emilio                 # oppure: python -m emilio
 ```bash
 pip install -e ".[voice,offline-voice,listen]"
 ollama pull gemma4:12b && ollama serve &
-EMILIO_LLM=local EMILIO_VOICE=offline EMILIO_OCCHI=preview EMILIO_ASCOLTO=whisper emilio
+EMILIO_LLM=local EMILIO_VOICE=offline EMILIO_OCCHI=preview EMILIO_ASCOLTO=mlx emilio
 ```
 
 ### Emilio "completo" (cloud)
@@ -417,6 +451,7 @@ print(ris.testo_detto, ris.emozione, ris.report.summary())
 | `/occhi [espressione]` · `/occhi guarda <dir>` | espressione/sguardo occhi |
 | `/ascolta [secondi]` | parla a voce una volta (microfono → risposta) |
 | `/conversa [secondi]` | modalità voce a mani libere |
+| `/streaming on\|off\|stato` | pipeline voce: streaming (a frasi) o blocco unico |
 | `/censura on\|off\|stato` | controllo amministratore della supervisione |
 | `/mod <testo>` | analizza un testo col supervisore (debug) |
 | `/reset` · `/aiuto` · `/esci` | memoria, aiuto, uscita |
@@ -427,7 +462,7 @@ print(ris.testo_detto, ris.emozione, ris.report.summary())
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest        # 54 test (oppure: python -m unittest discover -s tests)
+python -m pytest        # 77 test (oppure: python -m unittest discover -s tests)
 ```
 
 Coprono: supervisore (bestemmie combinatorie, leet, falsi positivi, flessioni,
@@ -443,7 +478,8 @@ Tutti **offline, senza rete né chiavi**.
 2. **Modello locale non censurato** — per bestemmie garantite a prescindere dal modello.
 3. **Carattere** — arricchire `persona.py` (frasi, tormentoni "alla Mosconi").
 4. **Corpo Wi-Fi** — `NetworkMover` + Pi; audio (mic/altoparlante) tra mente e corpo.
-5. **Wake-word / VAD** — togliere il "parla ora" per un dialogo continuo.
+5. **Wake-word** — togliere del tutto il "parla ora" (il VAD per chiudere il turno
+   c'è già: registra finché parli e smette dopo una pausa).
 6. **Movimento** — cingoli ora; testa/braccia in futuro.
 
 ---

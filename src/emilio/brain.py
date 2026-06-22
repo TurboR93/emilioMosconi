@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import random
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 
 from .persona import Persona
 
@@ -40,6 +41,12 @@ class Brain(ABC):
     def reply(self, user_text: str, umore: str = "") -> str:
         """Genera la risposta di Emilio. `umore` è un suggerimento sullo stato
         d'animo rilevato dall'utente (es. 'arrabbiato' se ti ha provocato)."""
+
+    def reply_stream(self, user_text: str, umore: str = "") -> Iterator[str]:
+        """Genera la risposta a PEZZI (per parlare frase per frase mentre l'LLM
+        scrive). Default: un blocco unico (i backend che sanno fare streaming
+        ridefiniscono questo metodo)."""
+        yield self.reply(user_text, umore)
 
     @abstractmethod
     def revise(self, motivo: str = "") -> str:
@@ -67,10 +74,10 @@ class MockBrain(Brain):
         "[neutro] Ma certo, figurati, c'ho passato una vita su queste cose.",
     ]
     ARRABBIATO = [
-        "[arrabbiato] Porco dio, dio can, ma chi te credi de essere?! Vaffanculo va'!",
-        "[arrabbiato] Madonna ladra, dio boia, ma va' in mona! Coglione, porca madonna!",
-        "[arrabbiato] Dio cane, ostia santa, vaffanculo te e chi t'ha fatto, dio porco!",
-        "[arrabbiato] Ma va' in mona, dio can! Stronzo, porco dio, te spacco i bulloni!",
+        "[arrabbiato] Ma chi, porco dio, te credi de essere, dio can, par vegnir qua a rompere?!",
+        "[arrabbiato] Senti, madonna ladra, mi sa che, dio boia, te vol proprio andar in mona!",
+        "[arrabbiato] Ma cossa, ostia, te se messo in testa, dio porco, brutto coglione che no te xe altro?!",
+        "[arrabbiato] Adesso, porca madonna, basta, dio can, che te spacco i bulloni, va' in mona!",
     ]
 
     # Marcatori (sottostringa) che indicano insulto o contraddizione nell'input.
@@ -150,6 +157,23 @@ class ClaudeBrain(Brain):
         self._messages.append({"role": "user", "content": _con_umore(user_text, umore)})
         return self._generate()
 
+    def reply_stream(self, user_text: str, umore: str = "") -> Iterator[str]:
+        self._messages.append({"role": "user", "content": _con_umore(user_text, umore)})
+        with self._client.messages.stream(
+            model=self.model,
+            max_tokens=self.max_tokens,
+            system=self._system,
+            thinking={"type": "adaptive"},
+            output_config={"effort": self.effort},
+            messages=self._messages,
+        ) as stream:
+            pezzi: list[str] = []
+            for delta in stream.text_stream:
+                if delta:
+                    pezzi.append(delta)
+                    yield delta
+        self._messages.append({"role": "assistant", "content": "".join(pezzi)})
+
     def revise(self, motivo: str = "") -> str:
         # Toglie l'ultima risposta "sporca" e chiede di riformulare.
         # Usa un messaggio di sistema a metà conversazione (supportato da
@@ -188,6 +212,7 @@ class LocalBrain(Brain):
         max_tokens: int = 800,
         think: bool = False,
         api_key: str = "",
+        keep_alive: str = "30m",
     ):
         self.persona = persona or Persona()
         self.base_url = base_url.rstrip("/")
@@ -195,6 +220,7 @@ class LocalBrain(Brain):
         self.max_tokens = max_tokens
         self.think = think
         self.api_key = api_key
+        self.keep_alive = keep_alive
         self._system = self.persona.system_prompt()
         self._messages: list[dict] = []
 
@@ -207,6 +233,7 @@ class LocalBrain(Brain):
             "messages": msgs,
             "stream": False,
             "think": self.think,                         # False = niente ragionamento lento
+            "keep_alive": self.keep_alive,               # tiene il modello caldo in RAM
             "options": {"num_predict": self.max_tokens},
         }
         headers = {"content-type": "application/json"}
@@ -222,6 +249,39 @@ class LocalBrain(Brain):
     def reply(self, user_text: str, umore: str = "") -> str:
         self._messages.append({"role": "user", "content": _con_umore(user_text, umore)})
         return self._chat()
+
+    def reply_stream(self, user_text: str, umore: str = "") -> Iterator[str]:
+        import json
+        import requests  # import pigro: serve solo col cervello locale
+
+        self._messages.append({"role": "user", "content": _con_umore(user_text, umore)})
+        msgs = [{"role": "system", "content": self._system}] + self._messages
+        payload = {
+            "model": self.model,
+            "messages": msgs,
+            "stream": True,
+            "think": self.think,
+            "keep_alive": self.keep_alive,
+            "options": {"num_predict": self.max_tokens},
+        }
+        headers = {"content-type": "application/json"}
+        if self.api_key:
+            headers["authorization"] = f"Bearer {self.api_key}"
+        pezzi: list[str] = []
+        with requests.post(self.base_url + "/api/chat", headers=headers,
+                           json=payload, stream=True, timeout=120) as resp:
+            resp.raise_for_status()
+            for riga in resp.iter_lines():
+                if not riga:
+                    continue
+                obj = json.loads(riga)
+                pezzo = (obj.get("message") or {}).get("content", "")
+                if pezzo:
+                    pezzi.append(pezzo)
+                    yield pezzo
+                if obj.get("done"):
+                    break
+        self._messages.append({"role": "assistant", "content": "".join(pezzi)})
 
     def revise(self, motivo: str = "") -> str:
         # Non più usato dalla pipeline (la censura ora è il BIP sull'audio), ma
@@ -254,6 +314,7 @@ def build_brain(config, persona: Persona) -> Brain:
             max_tokens=config.max_tokens,
             think=config.local_llm_think,
             api_key=config.local_llm_key,
+            keep_alive=getattr(config, "local_llm_keep_alive", "30m"),
         )
     if backend == "claude":
         return ClaudeBrain(
