@@ -2,173 +2,185 @@
 
 > Documento di riferimento per proseguire il lavoro in autonomia (sul Mac e poi
 > sul robottino). Raccoglie visione, requisiti, architettura, scelte hardware,
-> voce, sistema di censura e roadmap.
+> voce, occhi, ascolto, sistema di censura, reattività e roadmap.
 
 ---
 
 ## 1. Visione
 
-Ridare vita a **Emilio** dentro un **robottino degli anni '90**: deve **parlare**
-e **muoversi** (anche in modo manuale), **simulando una persona reale** con un
-carattere ben definito e comportamenti coerenti.
+Ridare vita a **Emilio** dentro un **robottino degli anni '90** (il giocattolo
+**Emiglio** di Giochi Preziosi): deve **parlare**, **muoversi** (anche in modo
+manuale), **reagire** ed essere espressivo, **simulando una persona reale** con
+un carattere ben definito.
 
 Riferimento di personaggio: il registro "alla **Germano Mosconi**" — italiano
-verace, schietto, brontolone, spontaneo nel fuorionda — ma **ripulito** da un
-sistema di supervisione che censura **parolacce e bestemmie in italiano**.
+verace, schietto, brontolone, **veneto**. Quando lo si provoca esplode con
+parolacce e bestemmie, che un **supervisore** copre con un **BIP** sull'audio.
 
-Due "cervelli" lavorano in cascata:
+Architettura **mente + corpo**:
 
-1. **Base LLM** — genera le risposte spontanee e in carattere.
-2. **Supervisore** — controlla a valle ciò che l'LLM ha prodotto e interviene
-   su volgarità e bestemmie. È un componente separato e indipendente.
+- **Mac = la mente**: orchestratore + **LLM** (locale via Ollama, oppure cloud
+  Claude) + supervisore + voce + **ascolto (STT)** + anteprima occhi. È anche la
+  macchina di sviluppo.
+- **Raspberry Pi = il corpo**: motori dei **cingoli**, **microfono e altoparlante
+  a bordo**, collegato alla mente in **Wi-Fi**. Onboard, non reggendo l'inferenza
+  locale, userà le **API cloud** (Claude + ElevenLabs).
+
+Due "cervelli" lavorano in cascata: la **base LLM** genera le risposte in
+carattere; il **supervisore** controlla a valle e copre il turpiloquio col BIP.
 
 ---
 
-## 2. Requisiti raccolti (dalle conversazioni)
+## 2. Requisiti raccolti
 
 | # | Requisito | Stato | Dove |
 |---|-----------|-------|------|
-| R1 | Emilio parla e (in prospettiva) si muove | ✅ base pronta | `agent.py`, `actuators.py` |
+| R1 | Emilio parla e si muove | ✅ | `agent.py`, `actuators.py` |
 | R2 | Movimento anche **manuale** | ✅ | `cli.py` `/muovi`, `actuators.py` |
 | R3 | **Simula una persona reale** con carattere | ✅ | `persona.py` |
-| R4 | **Supervisore** che censura parolacce + bestemmie IT, costruito *sopra* la base LLM | ✅ | `moderation/` |
-| R5 | Hardware **non performante** (Raspberry o simili) | ✅ progettato così | cloud per LLM+voce |
-| R6 | Voce: **italiano molto realistico** (ElevenLabs o simili) | ✅ | `speech.py` |
-| R7 | Censura **controllabile dall'amministratore**, facilmente **disattivabile** | ✅ | toggle runtime |
-| R8 | Censura **conseguente nel flusso del parlato** (passaggio obbligato) | ✅ | `Moderator.process` |
-| R9 | Sviluppo finale sul **Mac** dell'utente | ➡️ predisposto (tutto cross-platform) | — |
-| R10 | **Repo su GitHub** + documentazione esaustiva | ✅ in corso | questo documento |
+| R4 | **Supervisore** che censura parolacce + bestemmie IT, sopra la base LLM | ✅ | `moderation/` |
+| R5 | Hardware del corpo **non performante** (Raspberry) | ✅ | mente sul Mac, cloud onboard |
+| R6 | Voce: **italiano realistico** (ElevenLabs) | ✅ | `speech.py` |
+| R7 | Censura **disattivabile dall'amministratore** | ✅ | toggle runtime |
+| R8 | Censura **conseguente nel flusso** (passaggio obbligato) | ✅ | `review`+`span_censura` |
+| R9 | Sviluppo sul **Mac** dell'utente (la mente) | ✅ | LLM/STT locali sul Mac |
+| R10 | **Reattività**: si infuria se provocato | ✅ | `agent`, `lexicon.PROVOCAZIONI` |
+| R11 | **Occhi** espressivi (anteprima + LED futuri) | ✅ | `occhi.py` |
+| R12 | **Ascolto** vocale (STT) | ✅ | `ascolto.py` |
+| R13 | **Repo su GitHub** + documentazione esaustiva | ✅ | questo documento |
 
 ---
 
 ## 3. Architettura
 
 ```
-                 ┌───────────────────────────────────────────┐
-   input utente  │                 EmilioAgent                │
-   (testo/voce)  │                                            │
-        ─────────┼─►  brain.py        →  testo grezzo         │
-                 │   (base LLM)                               │
-                 │        │                                   │
-                 │        ▼                                   │
-                 │   moderation/      →  individua le parti   │
-                 │   (SUPERVISORE)       sporche (span)       │
-                 │        │              → BIP sull'audio     │
-                 │        ▼                                   │
-                 │   speech.py        →  voce (TTS realistico)│
-                 │   actuators.py     →  movimento bocca/corpo│
-                 └───────────────────────────────────────────┘
+            (voce → STT)          ┌──────────────── EmilioAgent (Mac) ───────────────┐
+   utente ───────────────────────┼─► ascolto.py  →  testo                            │
+   (testo o microfono)           │   brain.py     →  testo grezzo (+ tag [emozione])  │
+                                 │       │  (LLM: local/Ollama, claude, o mock)       │
+                                 │       ▼                                            │
+                                 │   moderation/  →  span "sporchi" RIDOTTI (centro)  │
+                                 │       │                                            │
+                                 │       ▼                                            │
+                                 │   speech.py    →  voce + BIP sul centro            │
+                                 │   occhi.py     →  espressione (forche se arrabbiato)│
+                                 │   actuators.py →  movimento cingoli (→ Wi-Fi → Pi) │
+                                 └────────────────────────────────────────────────────┘
 ```
 
 Principi:
 
-- **Componenti dietro interfacce** con backend intercambiabili.
-- Ogni componente ha un **backend "mock"** che gira **offline e senza chiavi**:
-  si sviluppa tutto sul Mac, poi si cambia solo la configurazione per il Pi.
-- **Difesa a due livelli** contro il turpiloquio:
-  1. il *system prompt* della persona istruisce l'LLM a non usare turpiloquio;
-  2. il *supervisore* interviene comunque sull'output (rete di sicurezza).
+- **Componenti dietro interfacce** (ABC) con backend intercambiabili e factory
+  `build_*`; ogni capacità ha un **backend "mock"** che gira **offline e senza
+  chiavi**. Si sviluppa tutto sul Mac, poi si cambia solo la configurazione.
+- **Difesa a due livelli** contro il turpiloquio incontrollato: il *system prompt*
+  guida l'LLM; il *supervisore* interviene comunque sull'audio (rete di sicurezza).
+  Ma quando Emilio è provocato DEVE sboccare: lì il BIP è il punto, non un errore.
 
 ---
 
-## 4. Struttura del codice
+## 4. Struttura del codice (src-layout)
 
 ```
-emilio/
-├── __init__.py          API pubblica del pacchetto
-├── __main__.py          avvio della console (python -m emilio)
-├── config.py            configurazione (tutto da variabili d'ambiente)
-├── persona.py           chi è Emilio + system prompt
-├── brain.py             base LLM: ClaudeBrain (API) / MockBrain (offline)
-├── moderation/
-│   ├── __init__.py
-│   ├── lexicon.py       elenchi: parolacce, entità divine, qualificatori, ...
-│   └── engine.py        motore: normalizzazione, individuazione, sanificazione
-├── speech.py            voce: ElevenLabs / pyttsx3 / mock
-├── actuators.py         movimento: seriale / mock + vocabolario movimenti
-├── agent.py             orchestrazione della pipeline del parlato
-├── cli.py               console di controllo manuale
-├── tests/
-│   └── test_moderation.py
+emilioMosconi/
+├── pyproject.toml       PEP 621: core stdlib; extra llm/voice/offline-voice/hardware/listen/dev/all
+├── README.md            uso
+├── CLAUDE.md            guida per sessioni Claude Code
 ├── docs/
-│   └── PROGETTO.md       (questo file)
-├── requirements.txt
-└── README.md
+│   ├── PROGETTO.md      (questo file)
+│   └── HARDWARE.md      componenti del corpo
+├── src/emilio/
+│   ├── __init__.py      API pubblica
+│   ├── __main__.py      avvio (python -m emilio)
+│   ├── config.py        configurazione (env EMILIO_*)
+│   ├── persona.py       chi è Emilio + system prompt
+│   ├── brain.py         LLM: MockBrain / ClaudeBrain / LocalBrain (Ollama)
+│   ├── moderation/      __init__.py · lexicon.py · engine.py (supervisore)
+│   ├── speech.py        voce: ElevenLabs / pyttsx3 / mock
+│   ├── audio_bip.py     logica pura del BIP (span→tempo, ffmpeg)
+│   ├── occhi.py         occhi LED: mock / anteprima web (faccia di Emiglio)
+│   ├── ascolto.py       STT: mock / faster-whisper (microfono)
+│   ├── actuators.py     movimento: seriale / mock
+│   ├── cli.py           console di controllo
+│   └── assets/beeps/    file BIP (bip_classico.wav)
+└── tests/               54 test
 ```
+
+> Con il **src-layout** i test e `python -m emilio` funzionano **solo dopo**
+> `pip install -e .` (il pacchetto vive sotto `src/`).
 
 ---
 
 ## 5. Il supervisore (parolacce + bestemmie)
 
-È il componente su cui c'è più cura. Vive in `moderation/`.
+Vive in `moderation/`. Analizza il testo prodotto dall'LLM e individua le parti
+da coprire.
 
 ### 5.1 Cosa riconosce
 
-- **Bestemmie combinatorie**: entità divina (`dio`, `madonna`, `cristo`, `gesù`,
-  `ostia`, ...) accostata a un qualificatore offensivo (`cane`, `porco`, `boia`,
-  `ladro`, ...), **in qualunque ordine**, anche attaccati (`porcodio`) o separati
-  da punteggiatura.
-- **Bestemmie/espressioni fisse** non coperte dalla combinazione (`dio morto`,
-  `cristo morto`, ...).
-- **Parolacce** tramite radici flesse (`cazz` → cazzo/cazzi/cazzata/cazzone),
-  con livelli di gravità (1 lieve → 3 forte; bestemmia = 5).
+- **Bestemmie combinatorie**: entità divina (`dio`, `madonna`/`madona`, `cristo`,
+  `ostia`, ...) + qualificatore offensivo (`cane`/`can`, `porco`, `boia`,
+  `ladro`, ...), in qualunque ordine, anche attaccati (`porcodio`) o con
+  punteggiatura in mezzo.
+- **Espressioni fisse** (`dio morto`, `ostia santa`, ...).
+- **Parolacce** tramite radici flesse (`cazz` → cazzo/cazzi/cazzata), gravità 1–5.
 
 ### 5.2 Robustezza (anti-evasione)
 
-- lettere ripetute: `diooo cane`
-- leetspeak: `p0rc0 di0`
-- maiuscole/minuscole e accenti
-- spaziature/punteggiatura tra le due parole della bestemmia
+Lettere ripetute (`diooo`), leetspeak (`p0rc0 di0`), maiuscole/accenti,
+spaziature/punteggiatura tra le due parole.
 
 ### 5.3 Precisione (niente falsi positivi)
 
-Le parole religiose **da sole NON** vengono censurate, così Emilio può parlare
-di religione: `credo in Dio`, `madonna che bello`, `una statua di Cristo`,
-`addio amici` → tutte lasciate intatte. Anche i moccoli "puliti" come
-`porca miseria` non sono trattati come bestemmie.
+Le parole religiose da sole NON vengono censurate (`credo in Dio`, `madonna che
+bello`, `addio`). Anche i moccoli puliti (`porca miseria`) passano.
 
-### 5.4 Cosa fa quando trova qualcosa: il BIP sull'audio
+### 5.4 Cosa fa quando trova qualcosa: il BIP MIRATO
 
 **Niente riformulazione dell'LLM.** Il cervello dice la sua battuta naturale; il
-supervisore restituisce gli **span di carattere** delle parti sporche
-(`Moderator.span_censura`) e la **voce li copre con un BIP sull'audio**:
+supervisore restituisce gli **span da bippare** (`Moderator.span_censura` via
+`Moderator._riduci_match`). La censura è **MIRATA "alla veneta"**: di ogni
+parolaccia restano udibili le **prime 2 lettere** e, per parole di **5+ lettere**,
+anche l'**ultima**; si bippa solo il **centro**. Così resta riconoscibile:
+`cazzo → ca[BIP]o`, `vaffanculo → va[BIP]o`, `porco dio → po[BIP]o di[BIP]`.
 
-1. la frase viene sintetizzata **con i timestamp** (ElevenLabs *with-timestamps*),
-   che danno l'allineamento carattere→tempo;
-2. gli span sporchi diventano **intervalli di tempo** (`audio_bip.intervalli_da_allineamento`);
-3. `ffmpeg` muta quegli intervalli e ci **sovrappone un file BIP** preso da una
-   lista (`assets/beeps/`, per ora il classico bip — `audio_bip.applica_bip`).
+La **voce copre quel centro con un BIP sull'audio**:
 
-In console/log le parti coperte appaiono come `[BIP]` (`EMILIO_BIP_MARKER`). Se il
-bip audio non riesce, **ripiego sicuro**: si risintetizza il testo con "bip"
-parlato, così la parolaccia non viene **mai** udita. Le voci `mock`/`offline`
-approssimano il bip. (La vecchia resa testuale `mask`/`bleep`/`euphemism` resta
-disponibile come `sanitize()` per usi non audio, ma non è più la via del parlato.)
+- **ElevenLabs** (`ElevenLabsSpeaker._say_censura`): endpoint *with-timestamps*
+  con `apply_text_normalization="off"` e **verifica che l'allineamento sia 1:1**
+  col testo; mappa gli span su tempo (`audio_bip.intervalli_da_allineamento`) e
+  `ffmpeg` muta + sovrappone il file BIP (`audio_bip.applica_bip`).
+- **Offline** (pyttsx3, `Pyttsx3Speaker._say_con_bip`): **una sola sintesi**
+  dell'intera frase, poi bip sul centro con timing **stimato** in proporzione ai
+  caratteri (la voce offline non dà i timestamp).
+- **mock**: mostra il marcatore `[BIP]` testuale.
+
+In console/log la resa è `Moderator.testo_con_bip` (marcatore `EMILIO_BIP_MARKER`;
+file BIP da `assets/beeps/`, `EMILIO_BIP_DIR`). Se il bip audio non riesce,
+**ripiego sicuro**: si risintetizza il testo con "bip" parlato (la parolaccia non
+viene **mai** udita). Funzioni utili in `audio_bip.py`: `intervalli_da_allineamento`,
+`applica_bip`, `concatena_audio`, `scegli_beep`, `testo_sicuro`, `applica_span`.
 
 ### 5.5 Controllo dell'amministratore (R7, R8)
 
-La censura è un **passaggio obbligato** della pipeline ed è **attivabile/
-disattivabile a runtime**:
-
-- da codice: `agent.set_moderazione(True|False)`, stato in `agent.moderazione_attiva`;
-- da console: `/censura on | off | stato`;
-- all'avvio: `EMILIO_MODERATION=0|1`.
-
-Quando è **disattivata**, non si calcola alcuno span da bippare ed Emilio dice
-l'audio **grezzo**; ma il supervisore **analizza comunque** (`Moderator.review`)
-e popola il `report`: così l'amministratore vede nei log cosa *sarebbe* stato
-bippato, senza alcun effetto sull'audio. (Il vecchio `Moderator.process()` resta
-per la resa testuale, non più usato nella via del parlato.)
+La pipeline usa `review()` + `span_censura()` + `testo_con_bip()`. Disattivabile a
+runtime: `agent.set_moderazione(True|False)`, `/censura on|off|stato`, all'avvio
+`EMILIO_MODERATION=0|1`. Quando è **spenta** non si calcola alcuno span: Emilio
+dice l'audio **grezzo**, ma il supervisore **analizza comunque** (per i log).
+`Moderator.process()`/`sanitize()` (stile `EMILIO_CENSOR_STYLE`) restano solo come
+resa **testuale legacy**, non sulla via del parlato.
 
 ### 5.6 Ampliare gli elenchi
 
-Si aggiungono termini in `moderation/lexicon.py`:
+In `moderation/lexicon.py`:
 
 - `PROFANITY` — `(radice, gravità, flessione)`
-- `BLASPHEMY_DIVINE` — entità divine
+- `BLASPHEMY_DIVINE` — entità divine (incl. grafie venete `madona`/`madone`)
 - `BLASPHEMY_QUALIFIER` — qualificatori offensivi
-- `BLASPHEMY_FIXED` — espressioni fisse
-- `INTERJECTIONS` — sostituti innocui
+- `BLASPHEMY_FIXED` — espressioni fisse multi-parola
+- `PROVOCAZIONI` — insulti/contraddizioni che fanno infuriare Emilio anche senza
+  turpiloquio (`scemo`, `inutile`, `ti sbagli`, `rottame`, ...)
+- `INTERJECTIONS` — sostituti innocui (uso legacy)
 
 Nessuna modifica al motore (`engine.py`).
 
@@ -176,135 +188,183 @@ Nessuna modifica al motore (`engine.py`).
 
 ## 6. La persona (carattere di Emilio)
 
-Definita in `persona.py` come dato (modificabile o caricabile da JSON con
-`EMILIO_PERSONA=/percorso.json`). Contiene: biografia, tratti, stile di
-linguaggio, interessi, regole di comportamento (incluse quelle anti-turpiloquio,
-prima linea di difesa). Da qui si costruisce il **system prompt** dell'LLM.
-
-> Per rendere Emilio "alla Mosconi": qui si inseriscono frasi tipiche,
-> intercalari, tormentoni e il tono da fuorionda. Se ritrovi materiale del
-> vecchio progetto, va incollato in questo file.
+In `persona.py` come dato (modificabile o caricabile da JSON con `EMILIO_PERSONA`).
+Contiene biografia, tratti, stile, interessi, regole. È **tarata per esplodere**
+se provocato: da calmo è brontolone bonario e pulito; se insultato/contraddetto
+risponde acido e sboccato (la censura è a valle, non nel prompt). Da qui si
+costruisce il **system prompt**, che chiede anche un **tag di stato d'animo**
+iniziale (vedi §11).
 
 ---
 
 ## 7. La base LLM (cervello)
 
-`brain.py` con due implementazioni dietro la stessa interfaccia:
+`brain.py`, con **tre** implementazioni dietro la stessa interfaccia, scelte da
+`EMILIO_LLM=mock|claude|local` (per retrocompatibilità `EMILIO_USE_LLM=1` = `claude`):
 
 - **`MockBrain`** — offline, senza chiavi; repertorio di battute in carattere.
-  Può anche produrre frasi "sboccate" (`naughty=True`) per **collaudare il
-  supervisore**.
-- **`ClaudeBrain`** — base LLM reale via API di **Claude (Anthropic)**.
-  - modello di default: `claude-opus-4-8`
-  - usa *adaptive thinking* + parametro *effort*
-  - mantiene la **memoria della conversazione**
-  - `revise()` esiste ancora ma **non è più usato** dalla pipeline (la censura
-    ora agisce sull'audio col BIP, senza chiedere all'LLM di riformulare)
+  Reattivo: se l'input contiene un insulto/provocazione risponde sboccato (per
+  collaudare censura e reattività).
+- **`ClaudeBrain`** — LLM cloud via API di **Claude (Anthropic)**; default
+  `claude-opus-4-8`, *adaptive thinking* + *effort*, memoria conversazione.
+- **`LocalBrain`** — LLM **locale via Ollama** (sul Mac, offline, senza chiavi
+  cloud). Usa l'**API nativa di Ollama** (`POST /api/chat`) con `think:false` per
+  disattivare il ragionamento lento dei modelli (es. Gemma 4: col thinking acceso
+  la latenza esplode ~30s). Default `gemma4:12b`. Env: `EMILIO_LOCAL_URL` (default
+  `http://localhost:11434`), `EMILIO_LOCAL_MODEL`, `EMILIO_LOCAL_THINK`,
+  `EMILIO_LOCAL_KEY`.
 
-> Nota latenza: per il dialogo dal vivo su hardware leggero, se la latenza di
-> Opus risultasse alta si può passare a un modello più rapido (es.
-> `claude-haiku-4-5`) impostando `EMILIO_MODEL`. La qualità del personaggio è
-> migliore con Opus; è un compromesso da tarare sul campo.
+Tutti i cervelli espongono `reply(user_text, umore="")`: con `umore="arrabbiato"`
+(provocazione rilevata, vedi §11) il testo utente riceve una spinta a rispondere
+infuriato. `revise()` esiste ancora ma **non è più usato** (la censura è il BIP,
+niente riformulazione).
 
 ---
 
 ## 8. La voce (TTS) — flessibile, a bassa latenza, misurabile (R6)
 
-`speech.py`. Pensato attorno a tre obiettivi: **flessibilità**, **latenza**,
-**misurabilità**.
-
-### 8.1 Profili voce (flessibilità)
-
-Una voce è descritta da un **`VoiceProfile`** (backend, modello, parametri).
-Il **`VoiceManager`** tiene un catalogo di profili e permette di **cambiare voce
-a runtime**. Profili predefiniti:
+`speech.py`. Una voce è un **`VoiceProfile`**; il **`VoiceManager`** tiene il
+catalogo e permette di cambiare voce a runtime.
 
 | Profilo | Backend | Note |
 |---------|---------|------|
 | `mock` | mock | stampa soltanto (sviluppo/test) |
-| `offline` | pyttsx3 | TTS offline, senza rete |
-| `veloce` | ElevenLabs | **Flash v2.5**, streaming, bassa latenza → dialogo dal vivo |
+| `offline` | pyttsx3 | TTS offline, voce di sistema italiana |
+| `veloce` | ElevenLabs | **Flash v2.5**, streaming, bassa latenza |
 | `realistico` | ElevenLabs | **Multilingual v2**, massimo realismo |
-| `espressivo` | ElevenLabs | Multilingual v2, stabilità bassa, più teatrale |
+| `espressivo` | ElevenLabs | Multilingual v2, più teatrale |
 
-Selezione: `EMILIO_VOICE=veloce`, oppure a runtime `agent.set_voce("veloce")` /
-`/voce veloce`. Puoi aggiungerne altri con `VoiceManager.aggiungi(...)`.
-Per elencare le voci del tuo account ElevenLabs: `speech.list_elevenlabs_voices(api_key)`.
+Selezione: `EMILIO_VOICE=veloce`, o `agent.set_voce(...)`/`/voce`. La voce
+**offline** sceglie una voce di sistema italiana **vera** evitando le voci
+"eloquence" (robotiche/incomprensibili); `EMILIO_TTS_VOICE` (default `Luca`,
+maschile) sceglie per nome/id, con ripiego su Alice se assente.
 
-### 8.2 Bassa latenza
-
-- **Streaming**: l'`ElevenLabsSpeaker` apre il flusso `/stream` e invia l'audio
-  al player **man mano che arriva** (parte prima che la frase sia completata).
-  Richiede `mpg123` o `ffplay` (riproduzione da stdin).
-- **Modello Flash v2.5** (`eleven_flash_v2_5`): sintesi ~sub-500ms.
-- `optimize_streaming_latency` (0..4) regolabile per profilo.
-
-### 8.3 Misurabilità
-
-Ogni `say()` restituisce **`SpeechMetrics`** (TTFB + tempo totale). La pipeline
-riporta anche la **latenza dell'LLM** (`RisultatoParlato.latenza_llm`). Da
-console: `/voce test` per una prova cronometrata.
-
-> Player audio: streaming via `mpg123`/`ffplay`; file via `afplay` (macOS) o
-> `mpg123`/`aplay` (Linux/Raspberry). Su macOS installa `mpg123`
-> (`brew install mpg123`) per lo streaming a bassa latenza.
+- **Bassa latenza**: streaming `/stream` + Flash v2.5; `optimize_streaming_latency`.
+- **Misurabilità**: ogni `say()` restituisce `SpeechMetrics` (TTFB + totale); la
+  pipeline riporta anche `RisultatoParlato.latenza_llm`. Da console `/voce test`.
+- **Player**: streaming via `mpg123`/`ffplay`; `ffmpeg` **richiesto** per il BIP.
 
 ---
 
-## 9. Il movimento (R1, R2)
+## 9. Gli occhi (espressività)
 
-`actuators.py`:
+`occhi.py`. `Occhi` ABC + `build_occhi` (`EMILIO_OCCHI=mock|preview`, porta
+`EMILIO_OCCHI_PORT` default 8473).
 
-- **`MockMover`** — stampa i comandi (sviluppo/test).
-- **`SerialMover`** — invia comandi via **seriale** a un microcontrollore
-  (es. Arduino) che pilota motori/servo/LED. Protocollo testuale, una riga per
-  comando: `MOVE <azione> <valore>\n`. Se `pyserial` non c'è, ripiega su stampa.
+- **`OcchiMock`** — stampa lo stato.
+- **`OcchiPreview`** — anteprima nel **browser** (solo stdlib `http.server`) che
+  disegna la **faccia del vero Emiglio**: calotta bianca, visiera nera, occhi
+  tondi a LED, **bocca animata** mentre parla. Se **arrabbiato** gli occhi
+  diventano **forche del diavolo** animate. Scritte di stato pulsanti
+  (TI ASCOLTO / STO PENSANDO / PARLO).
 
-Vocabolario movimenti (`MOVES`): `avanti`, `indietro`, `sinistra`, `destra`,
-`testa_su/giu/sx/dx`, `braccio_su/giu`, `bocca`, `occhi_on/off`, `stop`.
-
-Controllo **manuale** da console: `/muovi avanti 2`, `/azioni` per l'elenco.
-
----
-
-## 10. Scelte hardware (R5, R9)
-
-**Strategia: il carico pesante sta nel cloud.** L'LLM (Claude) e la voce
-(ElevenLabs) girano via API: il Raspberry fa solo da **orchestratore** (manda
-testo, riceve audio, lo riproduce, pilota i motori). Quindi:
-
-- **Raspberry Pi 3/4/5** sono più che sufficienti.
-- Serve **connessione internet** per LLM e voce realistica. (Senza rete: cervello
-  `MockBrain` + voce `pyttsx3`, qualità ridotta.)
-- **Audio**: uscita jack/USB/HAT audio + un player MP3 (`mpg123`).
-- **Movimento**: scheda motori/servo collegata via USB-seriale, con firmware
-  che interpreta `MOVE <azione> <valore>`.
-
-**Sul Mac (sviluppo)**: tutto già cross-platform. `afplay` è preinstallato per
-l'audio; per la seriale si usa il backend `mock` finché non c'è hardware.
+Espressioni (`ESPRESSIONI`): `neutro` (verde), `felice`, `arrabbiato` (rosso,
+forche), `sorpreso`, `triste`, `pensa` (viola), `parla`, `ascolta`, `spento`.
+Direzioni sguardo: centro/sinistra/destra/su/giu. CLI: `/occhi [espressione]`,
+`/occhi guarda <dir>`. L'agente li pilota da solo: `pensa` mentre genera, `parla`
+o `arrabbiato` mentre parla, `ascolta` mentre ascolta. Sul corpo: futuro backend
+`OcchiLed` su LED RGB indirizzabili (NeoPixel).
 
 ---
 
-## 11. Configurazione (variabili d'ambiente)
+## 10. L'ascolto (STT, microfono)
+
+`ascolto.py` — **a monte** della pipeline. `Ascoltatore` ABC + `build_ascoltatore`
+(`EMILIO_ASCOLTO=mock|whisper`).
+
+- **`MockAscoltatore`** — ritorna una frase fissa (test).
+- **`WhisperAscoltatore`** — registra dal microfono (`ffmpeg`, avfoundation su
+  macOS) e trascrive con **faster-whisper** (offline, italiano) con `vad_filter`
+  (salta il silenzio → niente allucinazioni tipo "Sottotitoli e revisione...").
+
+Gira sul **Mac**, non sul Pi. Env: `EMILIO_STT_MODEL` (default `small`),
+`EMILIO_STT_LANG` (it), `EMILIO_STT_COMPUTE` (int8, ripiego float32),
+`EMILIO_MIC_DEVICE` (indice avfoundation, vuoto=auto), `EMILIO_STT_SECONDI`
+(default 5). CLI: `/ascolta [secondi]` (un turno) e `/conversa [secondi]` (mani
+libere). Il microfono su macOS richiede il permesso al terminale.
+
+---
+
+## 11. La reattività (stato d'animo)
+
+Emilio reagisce alle provocazioni. Se l'utente lo **insulta** o lo **contraddice**
+— anche **senza** parolacce (`scemo`, `inutile`, `ti sbagli`, `rottame`...) —
+`EmilioAgent._provocato_input` lo rileva (`moderation.contiene_provocazione`,
+lista `lexicon.PROVOCAZIONI`) **prima** di generare e passa `umore="arrabbiato"`
+al cervello, che risponde acido e sboccato (così non si "calma" ai turni dopo).
+
+Lo stato d'animo è **dichiarato dall'LLM** con un tag a inizio risposta, es.
+`[arrabbiato] ...`, che `agent._estrai_emozione` **stacca** (non viene pronunciato)
+e mette in `RisultatoParlato.emozione`. Il parsing è tollerante (`[molto
+arrabbiato]`, `[arrabbiato!]`, virgolette); se fra parentesi non c'è un'emozione
+nota lascia il testo intatto. Emozioni: neutro/felice/arrabbiato/sorpreso/triste/
+pensa. Lo stato guida gli **occhi** (forche del diavolo se arrabbiato).
+Controllabile con `EMILIO_MODERATE_INPUT`.
+
+---
+
+## 12. Il movimento (R1, R2)
+
+`actuators.py`. **`MockMover`** stampa i comandi; **`SerialMover`** invia
+`MOVE <azione> <valore>\n` via seriale a un microcontrollore (Arduino) che pilota
+i motori. Vocabolario `MOVES`.
+
+Oggi l'**unica motorizzazione attiva** sono i **cingoli** (`avanti`, `indietro`,
+`sinistra`, `destra`). `testa_*`, `braccio_*`, `bocca`, `occhi_on/off` sono già in
+`MOVES` ma **rinviati al futuro** (non cablati). Controllo manuale: `/muovi avanti
+2`, `/azioni`. In arrivo un `NetworkMover` che manda lo stesso protocollo via
+**Wi-Fi** al Pi.
+
+---
+
+## 13. Scelte hardware (R5, R9) — mente + corpo
+
+- **Mac = la mente**: orchestratore + LLM (locale Ollama o cloud Claude) +
+  supervisore + voce + STT + anteprima occhi. È dove gira il carico pesante in
+  sviluppo.
+- **Raspberry Pi = il corpo**: motori dei cingoli, **microfono e altoparlante a
+  bordo**, link Wi-Fi con la mente. Onboard, non reggendo l'inferenza locale, userà
+  le **API cloud** (Claude + ElevenLabs); per questo il Pi può essere modesto.
+- Senza rete: cervello `MockBrain` o **LLM locale Ollama** (sul Mac), voce
+  `pyttsx3`, STT faster-whisper. **`ffmpeg` richiesto** (BIP + registrazione mic).
+
+Dettaglio componenti del corpo in [`HARDWARE.md`](HARDWARE.md).
+
+---
+
+## 14. Configurazione (variabili d'ambiente)
 
 | Variabile | Default | Significato |
 |-----------|---------|-------------|
-| `EMILIO_USE_LLM` | `0` | `1` per usare Claude invece del mock |
-| `EMILIO_MODEL` | `claude-opus-4-8` | modello LLM |
+| `EMILIO_LLM` | (vuoto) | cervello: `mock`/`claude`/`local` (vuoto = `claude` se `EMILIO_USE_LLM=1`, altrimenti `mock`) |
+| `EMILIO_USE_LLM` | `0` | retrocompat: `1` = claude |
+| `EMILIO_MODEL` | `claude-opus-4-8` | modello Claude |
 | `EMILIO_MAX_TOKENS` | `800` | lunghezza massima risposta |
-| `EMILIO_EFFORT` | `medium` | `low`/`medium`/`high` |
-| `EMILIO_MODERATION` | `1` | supervisione (BIP) attiva all'avvio — disattivabile da admin |
-| `EMILIO_BIP_MARKER` | `[BIP]` | come appare il bip in console/log |
-| `EMILIO_BIP_DIR` | (pacchettizzati) | cartella dei file BIP (lista) |
-| `EMILIO_CENSOR_STYLE` | `mask` | resa testuale legacy (`mask`/`bleep`/`euphemism`) |
-| `EMILIO_MODERATE_INPUT` | `1` | analizza anche l'input utente (log) |
-| `EMILIO_VOICE` | (da `EMILIO_TTS`) | profilo voce: `mock`/`offline`/`veloce`/`realistico`/`espressivo` |
+| `EMILIO_EFFORT` | `medium` | `low`/`medium`/`high` (Claude) |
+| `EMILIO_LOCAL_URL` | `http://localhost:11434` | endpoint Ollama (API nativa) |
+| `EMILIO_LOCAL_MODEL` | `gemma4:12b` | modello LLM locale |
+| `EMILIO_LOCAL_THINK` | `0` | `1` abilita il ragionamento (lento) |
+| `EMILIO_LOCAL_KEY` | — | bearer token opzionale per Ollama |
+| `EMILIO_MODERATION` | `1` | supervisione (BIP) attiva all'avvio |
+| `EMILIO_MODERATE_INPUT` | `1` | rileva insulti/provocazioni nell'input |
+| `EMILIO_BIP_MARKER` | `[BIP]` | resa testuale del bip |
+| `EMILIO_BIP_DIR` | (pacchettizzati) | cartella dei file BIP |
+| `EMILIO_CENSOR_STYLE` | `mask` | resa testuale legacy |
+| `EMILIO_VOICE` | (vuoto) | profilo voce; se vuoto deriva da `EMILIO_TTS` |
 | `EMILIO_TTS` | `mock` | ripiego se `EMILIO_VOICE` non impostato |
 | `EMILIO_TTS_LANG` | `it` | lingua TTS |
-| `ELEVENLABS_API_KEY` | — | chiave ElevenLabs |
-| `ELEVENLABS_VOICE_ID` | — | id della voce italiana scelta |
-| `ELEVENLABS_MODEL` | `eleven_multilingual_v2` | modello voce |
+| `EMILIO_TTS_VOICE` | `Luca` | voce di sistema pyttsx3 (offline); ripiego Alice |
+| `ELEVENLABS_API_KEY` / `ELEVENLABS_VOICE_ID` | — | voce realistica IT |
+| `ELEVENLABS_MODEL` | `eleven_multilingual_v2` | modello ElevenLabs (realistico/espressivo) |
 | `EMILIO_AUDIO_OUT` | `emilio_voce.mp3` | file audio generato |
+| `EMILIO_OCCHI` | `mock` | occhi: `mock`/`preview` |
+| `EMILIO_OCCHI_PORT` | `8473` | porta anteprima web occhi |
+| `EMILIO_ASCOLTO` | `mock` | STT: `mock`/`whisper` |
+| `EMILIO_STT_MODEL` | `small` | modello whisper (`tiny`/`base`/`small`/`medium`) |
+| `EMILIO_STT_LANG` | `it` | lingua STT |
+| `EMILIO_STT_COMPUTE` | `int8` | tipo di calcolo (`int8`/`float32`) |
+| `EMILIO_MIC_DEVICE` | (auto) | indice microfono avfoundation |
+| `EMILIO_STT_SECONDI` | `5` | durata registrazione |
 | `EMILIO_ACTUATORS` | `mock` | `serial`/`mock` |
 | `EMILIO_SERIAL_PORT` | `/dev/ttyUSB0` | porta seriale motori |
 | `EMILIO_SERIAL_BAUD` | `9600` | baud rate seriale |
@@ -312,168 +372,113 @@ l'audio; per la seriale si usa il backend `mock` finché non c'è hardware.
 
 ---
 
-## 12. Avvio rapido
+## 15. Avvio rapido
 
-### Sul Mac, subito (offline, senza chiavi)
-
+### Offline, senza chiavi
 ```bash
-git clone <URL-REPO>
-cd <repo>
-python3 -m emilio
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -e .
+emilio                 # oppure: python -m emilio
 ```
 
-```
-tu> Come va Emilio?
-🔊 [Emilio] Eh, ai miei tempi sì che si stava bene...
-tu> /muovi avanti 2
-🤖 [Emilio muove] vai avanti (x2)
-tu> /censura off
-tu> /mod porco dio       # debug del supervisore
-```
-
-### Emilio "completo" (LLM reale + voce ElevenLabs)
-
+### Cervello locale (Ollama) + voce udibile + occhi + ascolto
 ```bash
-pip install anthropic requests
-export ANTHROPIC_API_KEY=...
-export ELEVENLABS_API_KEY=...
-export ELEVENLABS_VOICE_ID=...        # voce italiana scelta nel tuo account
-export EMILIO_USE_LLM=1
-export EMILIO_TTS=elevenlabs
-python3 -m emilio
+pip install -e ".[voice,offline-voice,listen]"
+ollama pull gemma4:12b && ollama serve &
+EMILIO_LLM=local EMILIO_VOICE=offline EMILIO_OCCHI=preview EMILIO_ASCOLTO=whisper emilio
+```
+
+### Emilio "completo" (cloud)
+```bash
+pip install -e ".[llm,voice]"
+export ANTHROPIC_API_KEY=...  ELEVENLABS_API_KEY=...  ELEVENLABS_VOICE_ID=...
+export EMILIO_LLM=claude EMILIO_VOICE=realistico   # o veloce
+emilio
 ```
 
 ### Da codice
-
 ```python
 from emilio import EmilioAgent
 emilio = EmilioAgent()
 ris = emilio.parla("Raccontami una cosa dei tuoi tempi")
-print(ris.testo_detto, ris.report.summary())
+print(ris.testo_detto, ris.emozione, ris.report.summary())
 ```
 
 ---
 
-## 13. Comandi della console
+## 16. Comandi della console
 
 | Comando | Azione |
 |---------|--------|
 | `<testo>` | parla con Emilio (LLM → supervisore → voce) |
 | `/di <testo>` | fai dire una frase esatta (passa dal supervisore) |
-| `/voci` | elenca i profili voce |
-| `/voce <nome>` | cambia la voce attiva a runtime |
-| `/voce test [testo]` | prova la voce e misura la latenza |
-| `/muovi <azione> [valore]` | movimento manuale |
-| `/azioni` | elenco movimenti |
+| `/voci` · `/voce <nome>` · `/voce test [testo]` | voci e prova latenza |
+| `/muovi <azione> [valore]` · `/azioni` | movimento manuale + elenco |
+| `/occhi [espressione]` · `/occhi guarda <dir>` | espressione/sguardo occhi |
+| `/ascolta [secondi]` | parla a voce una volta (microfono → risposta) |
+| `/conversa [secondi]` | modalità voce a mani libere |
 | `/censura on\|off\|stato` | controllo amministratore della supervisione |
 | `/mod <testo>` | analizza un testo col supervisore (debug) |
-| `/reset` | azzera la memoria conversazione |
-| `/aiuto` | aiuto |
-| `/esci` | esci |
+| `/reset` · `/aiuto` · `/esci` | memoria, aiuto, uscita |
 
 ---
 
-## 14. Test
+## 17. Test
 
 ```bash
-python3 -m unittest emilio.tests.test_moderation -v
+pip install -e ".[dev]"
+python -m pytest        # 54 test (oppure: python -m unittest discover -s tests)
 ```
 
-Coprono: bestemmie combinatorie, forme attaccate/leet, falsi positivi
-religiosi, eufemismi, parolacce con flessioni, sanificazione, e il toggle
-amministratore.
+Coprono: supervisore (bestemmie combinatorie, leet, falsi positivi, flessioni,
+censura mirata), voce, censura audio, cervello + occhi, reattività + ascolto.
+Tutti **offline, senza rete né chiavi**.
 
 ---
 
-## 15. Roadmap / prossimi passi (sul Mac)
+## 18. Roadmap / prossimi passi
 
-1. **Carattere** — arricchire `persona.py` con frasi e tono "alla Mosconi"
-   (e materiale del vecchio progetto, se recuperato).
-2. **Voce** — scegliere/clonare una voce italiana su ElevenLabs, salvare il
-   `voice_id`, tarare i parametri e fare una prova audio end-to-end.
-3. **Cervello** — collegare Claude, tarare prompt/lunghezza/latenza per il
-   dialogo dal vivo.
-4. **Hardware** — definire motori/servo del robottino e scrivere il firmware
-   seriale (`MOVE <azione> <valore>`).
-5. **Ingresso vocale (futuro)** — aggiungere STT (riconoscimento vocale) per
-   parlare a Emilio a voce: oggi l'input è testuale.
+1. **Voce reale** — voce italiana (maschile) su ElevenLabs, `voice_id`, taratura;
+   col timing esatto il BIP diventa preciso al millisecondo.
+2. **Modello locale non censurato** — per bestemmie garantite a prescindere dal modello.
+3. **Carattere** — arricchire `persona.py` (frasi, tormentoni "alla Mosconi").
+4. **Corpo Wi-Fi** — `NetworkMover` + Pi; audio (mic/altoparlante) tra mente e corpo.
+5. **Wake-word / VAD** — togliere il "parla ora" per un dialogo continuo.
+6. **Movimento** — cingoli ora; testa/braccia in futuro.
 
 ---
 
-## 16. Decisioni ancora aperte
+## 19. Tecnologie per massimizzare il potenziale dell'LLM (ricerca)
 
-- **Stile di censura di default**: sostituzione con moccolo innocuo (effetto
-  "fuorionda ripulito") oppure `[bip]` stile TV? → impostabile con
-  `EMILIO_CENSOR_STYLE`.
-- **Modello LLM**: Opus (qualità) vs Haiku (latenza/costo) per il tempo reale.
-- **Voce**: quale voce ElevenLabs italiana (o eventuale clonazione).
-- **Ingresso**: solo testo per ora; valutare comando vocale (STT).
+### 19.1 Far AGIRE l'LLM: tool use / function calling
+Esporre il vocabolario dei movimenti come "strumenti" così l'LLM, mentre parla,
+decide di emettere `muovi("avanti")` ed Emilio gesticola coerentemente. Salto di
+qualità più grande per il personaggio. (Oggi: lo stato d'animo via tag è un primo
+passo in questa direzione.)
 
----
+### 19.2 Agent Skills (Claude)
+Cartelle (`SKILL.md` + risorse) caricate solo quando servono: es. *persona-emilio*,
+*moccoli-puliti*, *aneddoti*. Descrizioni specifiche = attivazione affidabile.
 
-## 17. Tecnologie per massimizzare il potenziale dell'LLM (ricerca)
+### 19.3 Voce: modelli ElevenLabs
+Multilingual v2 (realismo), Flash v2.5 (latenza, default per `veloce`), Eleven v3
+(espressività). Conviene tenere la **nostra pipeline** (LLM → supervisore → TTS) e
+usare ElevenLabs **solo** come voce, per mantenere il controllo della censura.
 
-Sintesi di una ricerca su come "spremere" al massimo l'LLM che governa Emilio.
+### 19.4 Ingresso vocale (STT) — ✅ fatto
+Implementato con **faster-whisper** (vedi §10). Alternative future: Whisper.cpp
+sul Pi, o STT cloud.
 
-### 18.1 Far AGIRE l'LLM: tool use / function calling
-
-Oggi l'LLM solo *parla*; il movimento è separato. Con il **tool use** (function
-calling) di Claude possiamo esporre all'LLM il vocabolario dei movimenti come
-"strumenti": Claude, mentre risponde, decide di emettere `muovi("avanti")` o
-`muovi("braccio_su")` e il nostro codice lo esegue. Risultato: **Emilio
-gesticola e si muove in modo coerente con ciò che dice**, non a caso.
-- È il salto di qualità più grande per il personaggio.
-- Si definiscono i tool come schema JSON; Claude segnala la chiamata, noi la
-  eseguiamo via `actuators.py`.
-
-### 18.2 Agent Skills (Claude)
-
-Le **Skills** sono cartelle (`SKILL.md` + eventuali script/risorse) che Claude
-carica **automaticamente quando servono**, senza appesantire sempre il contesto.
-Per Emilio possiamo creare skill dedicate, es.:
-- *persona-emilio* — tono, frasi tipiche, tormentoni "alla Mosconi";
-- *moccoli-puliti* — repertorio di esclamazioni innocue da usare al posto del
-  turpiloquio;
-- *aneddoti* — storie/contesto da cui attingere.
-Regola pratica: descrizioni specifiche = la skill si attiva in modo affidabile;
-poche skill ben fatte > tante (ognuna "costa" contesto).
-
-### 18.3 Voce: scelta del modello ElevenLabs
-
-Tre opzioni, da scegliere in base al compromesso realismo/latenza:
-- **Multilingual v2** — il più stabile e lifelike: ottimo per qualità, un filo
-  più lento. (È il default attuale del progetto.)
-- **Flash v2.5** — **bassissima latenza (~sub-500ms)**, 32 lingue incl. italiano:
-  ideale per **conversazione in tempo reale** su un robot.
-- **Eleven v3** — il più **espressivo** (70+ lingue): per recitazione/emozione.
-
-Inoltre esiste la **ElevenLabs Agents Platform** (STT + LLM + TTS in un unico
-agente vocale a bassa latenza): comoda, ma metterebbe l'LLM "dentro" ElevenLabs
-e renderebbe più difficile inserire **il nostro supervisore** nel flusso. Per
-mantenere il controllo della censura conviene tenere la **nostra pipeline**
-(LLM → supervisore → TTS) e usare ElevenLabs **solo** come voce.
-
-### 18.4 Ingresso vocale (STT, futuro)
-
-Per parlare a Emilio a voce (non solo testo) serve uno **Speech-To-Text**.
-Opzioni: Whisper (anche locale/`whisper.cpp` sul Pi), o lo STT di ElevenLabs.
-Da aggiungere come nuovo componente a monte della pipeline.
-
-### 18.5 Parametri del modello Claude
-
-- *adaptive thinking* + *effort* (`low/medium/high`) per bilanciare qualità e
-  latenza/costo.
-- Modello: `claude-opus-4-8` per qualità del personaggio; valutare un modello
-  più rapido se la latenza dal vivo è critica.
+### 19.5 Parametri Claude
+*adaptive thinking* + *effort* per bilanciare qualità/latenza; modello più rapido
+(`claude-haiku-4-5`) se la latenza dal vivo è critica.
 
 ---
 
-## 18. Note operative
+## 20. Note operative
 
-- Il nucleo (persona + supervisore + pipeline) gira con la **sola libreria
-  standard** di Python: le dipendenze (`anthropic`, `requests`, `pyttsx3`,
-  `pyserial`) servono solo per i componenti reali e sono **opzionali**.
-- Tutta la configurazione passa da **variabili d'ambiente**: nessun segreto nel
-  codice.
-- Il progetto è isolato nella cartella `emilio/` e non dipende dagli altri file
-  presenti nel repository.
+- Il **nucleo** gira con la sola **libreria standard**; le dipendenze
+  (`anthropic`, `requests`, `pyttsx3`, `pyserial`, `faster-whisper`) sono
+  **opzionali** (extra del `pyproject.toml`) e importate pigramente.
+- Tutta la configurazione passa da **variabili d'ambiente**: nessun segreto nel codice.
+- **`ffmpeg`** è richiesto per il BIP di censura e per la registrazione del microfono.

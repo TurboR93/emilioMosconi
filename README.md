@@ -97,7 +97,7 @@ tu> Come va Emilio?
 tu> /muovi avanti 2
 🤖 [Emilio muove] vai avanti (x2)
 tu> /di ma che cazzo dici, porco dio
-🔊 [Emilio/mock] ma che [BIP] dici, [BIP]   # censura ON: bip sull'audio
+🔊 [Emilio/mock] ma che ca[BIP]o dici, po[BIP]o di[BIP]   # censura MIRATA: bip solo sul centro
 tu> /censura off
 tu> /di ma che cazzo dici, porco dio
 🔊 [Emilio/mock] ma che cazzo dici, porco dio   # admin OFF: audio grezzo
@@ -110,7 +110,7 @@ pip install -e ".[llm,voice]"      # Claude + ElevenLabs
 export ANTHROPIC_API_KEY=...        # cervello (cloud, per ora)
 export ELEVENLABS_API_KEY=...       # voce
 export ELEVENLABS_VOICE_ID=...      # voce italiana scelta sul tuo account
-export EMILIO_USE_LLM=1
+export EMILIO_LLM=claude            # cervello cloud (EMILIO_USE_LLM=1 è la via legacy)
 export EMILIO_VOICE=veloce          # bassa latenza (Flash v2.5, streaming)
 emilio
 ```
@@ -118,11 +118,12 @@ emilio
 ## Cervello locale (Ollama, sul Mac)
 
 Per iterare offline e senza costi, Emilio può usare un **LLM locale** servito da
-Ollama (API compatibile OpenAI). Ottimo per lo sviluppo sul Mac:
+Ollama (**API nativa `/api/chat`**, che permette di disattivare il "thinking"
+lento dei modelli come Gemma). Ottimo per lo sviluppo sul Mac:
 
 ```bash
 ollama pull gemma4:12b              # scarica il modello (es. Gemma 4 12B)
-pip install -e ".[voice]"           # 'requests' serve anche per l'LLM locale
+pip install -e ".[voice]"           # 'requests' (extra voice) serve anche per parlare con Ollama
 export EMILIO_LLM=local
 export EMILIO_LOCAL_MODEL=gemma4:12b   # opzionale (default)
 emilio
@@ -198,7 +199,13 @@ intero (**niente riformulazione dell'LLM**); la voce ricava dai timestamp di
 ElevenLabs *dove* cadono le parti sporche e ci sovrappone un **file BIP** (da
 [`src/emilio/assets/beeps/`](src/emilio/assets/beeps/), lista estendibile — per
 ora il classico bip) tramite `ffmpeg`. In console/log le parti coperte appaiono
-come `[BIP]` (`EMILIO_BIP_MARKER`); sulle voci offline/mock il bip è approssimato.
+come `[BIP]` (`EMILIO_BIP_MARKER`).
+
+La censura è **MIRATA "alla veneta"**: di ogni parolaccia restano udibili le
+**prime due lettere** e, per le parole di **5+ lettere**, anche l'**ultima**; si
+bippa solo il **centro** (`ca[BIP]o`, `va[BIP]o`, `po[BIP]o di[BIP]`), così resta
+riconoscibile. Con ElevenLabs il timing è esatto (timestamp); sulla voce offline
+è stimato (una sola sintesi + bip proporzionale); su `mock` è solo testo `[BIP]`.
 
 ### Controllo dell'amministratore
 
@@ -225,19 +232,27 @@ Da console: `/censura on|off|stato`. Per ampliare il lessico aggiungi termini in
 | `EMILIO_LLM` | (vuoto) | backend cervello: `mock`/`claude`/`local` |
 | `EMILIO_LOCAL_MODEL` | `gemma4:12b` | modello dell'LLM locale (Ollama) |
 | `EMILIO_LOCAL_URL` | `http://localhost:11434` | endpoint Ollama (API nativa `/api/chat`) |
+| `EMILIO_LOCAL_THINK` | `0` | `1` abilita il ragionamento (lento) dell'LLM locale |
 | `EMILIO_USE_LLM` | `0` | retrocompat: `1` = `claude` se `EMILIO_LLM` non impostato |
 | `EMILIO_MODEL` | `claude-opus-4-8` | modello Claude (cloud) |
 | `EMILIO_MODERATION` | `1` | supervisione (BIP) on/off all'avvio — disattivabile da admin |
+| `EMILIO_MODERATE_INPUT` | `1` | rileva insulti/provocazioni anche nell'input |
 | `EMILIO_BIP_MARKER` | `[BIP]` | come appare il bip in console/log |
 | `EMILIO_BIP_DIR` | (pacchettizzati) | cartella con i file BIP (lista) |
 | `EMILIO_CENSOR_STYLE` | `mask` | resa testuale legacy (`mask`/`bleep`/`euphemism`) |
-| `EMILIO_VOICE` | (deriva da `EMILIO_TTS`) | profilo voce: `mock`/`offline`/`veloce`/`realistico`/`espressivo` |
+| `EMILIO_VOICE` | (vuoto) | profilo voce: `mock`/`offline`/`veloce`/`realistico`/`espressivo`; se vuoto deriva da `EMILIO_TTS` |
 | `EMILIO_TTS` | `mock` | ripiego se `EMILIO_VOICE` non impostato |
+| `EMILIO_TTS_VOICE` | `Luca` | voce di sistema per il TTS offline (pyttsx3); ripiego Alice |
 | `ELEVENLABS_API_KEY` / `ELEVENLABS_VOICE_ID` | — | voce realistica IT |
+| `ELEVENLABS_MODEL` | `eleven_multilingual_v2` | modello ElevenLabs (profili `realistico`/`espressivo`) |
+| `EMILIO_AUDIO_OUT` | `emilio_voce.mp3` | file audio generato |
 | `EMILIO_ACTUATORS` | `mock` | `serial`/`mock` (in arrivo: `network`) |
 | `EMILIO_OCCHI` | `mock` | occhi: `mock`/`preview` (anteprima nel browser) |
+| `EMILIO_OCCHI_PORT` | `8473` | porta dell'anteprima occhi nel browser |
 | `EMILIO_ASCOLTO` | `mock` | STT: `mock`/`whisper` (microfono + faster-whisper) |
 | `EMILIO_STT_MODEL` | `small` | modello whisper: `tiny`/`base`/`small`/`medium` |
+| `EMILIO_STT_COMPUTE` | `int8` | tipo di calcolo whisper (`int8`/`float32`) |
+| `EMILIO_STT_SECONDI` | `5` | durata registrazione microfono di default |
 | `EMILIO_MIC_DEVICE` | (auto) | indice microfono avfoundation (macOS) |
 | `EMILIO_SERIAL_PORT` | `/dev/ttyUSB0` | porta seriale motori |
 | `EMILIO_PERSONA` | — | file JSON con una persona custom |
@@ -251,7 +266,8 @@ pip install -e ".[dev]"
 python -m pytest                       # oppure: python -m unittest discover -s tests
 ```
 
-19 test su supervisore e voce. Con il **src-layout** i test girano contro il
+54 test su supervisore, voce, censura audio, cervello+occhi e reattività+ascolto.
+Con il **src-layout** i test girano contro il
 pacchetto **installato** (`pip install -e .`), non contro i sorgenti: esegui
 sempre l'install editable prima dei test.
 

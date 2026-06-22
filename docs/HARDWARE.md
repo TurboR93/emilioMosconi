@@ -4,8 +4,12 @@ Guida pratica all'hardware per montare Emilio su Raspberry Pi. Prezzi indicativi
 in € (mercato hobbistico, possono variare). Pensata per due livelli: **Base**
 (Emilio ascolta e parla) e **Completo** (anche movimento e occhi).
 
-> Strategia: il lavoro pesante (LLM Claude + voce ElevenLabs) sta nel cloud, il
-> Raspberry fa da orchestratore. Quindi non serve un computer potente.
+> Strategia **mente + corpo**: la **mente** (orchestratore + LLM + supervisore +
+> voce + STT) gira sul **Mac**; il **Raspberry è il corpo** (motori dei cingoli,
+> microfono e altoparlante a bordo) collegato in Wi-Fi. In sviluppo il lavoro
+> pesante sta sul Mac; onboard, non reggendo l'inferenza locale, il Pi userà le
+> **API cloud** (Claude + ElevenLabs). Per questo il Pi non deve essere potente.
+> **`ffmpeg` è richiesto** (BIP di censura + registrazione del microfono).
 
 ---
 
@@ -13,7 +17,7 @@ in € (mercato hobbistico, possono variare). Pensata per due livelli: **Base**
 
 | Componente | Esempio | Perché | Prezzo |
 |------------|---------|--------|--------|
-| **Raspberry Pi 4 o 5** (2–4 GB) | Pi 5 4GB / Pi 4 2GB | Esegue l'orchestratore, rete, audio, I2C per i motori | 50–80 € |
+| **Raspberry Pi 4 o 5** (2–4 GB) | Pi 5 4GB / Pi 4 2GB | È il **corpo**: audio (mic + altoparlante a bordo), motori dei cingoli, Wi-Fi con la mente (Mac). Onboard può fare da orchestratore con LLM/voce via cloud | 50–80 € |
 | **MicroSD** 32 GB classe A1/A2 | SanDisk Ultra/Extreme | Sistema operativo | 8–12 € |
 | **Alimentatore ufficiale** | Pi 5: USB-C 5V/5A · Pi 4: 5V/3A | Stabilità (l'audio/servo soffrono i cali) | 12–15 € |
 | **Case** (opzionale) | con accesso GPIO | Per montarlo nel pupazzo | 8–15 € |
@@ -36,6 +40,12 @@ Tre fasce, dalla più semplice alla più "seria":
 **Consiglio:** parti con il **ReSpeaker 2-Mic Pi HAT** — buon compromesso
 qualità/prezzo e fatto apposta per la voce. Per ambienti rumorosi, l'array USB a
 4 mic è di un altro livello.
+
+> Requisito software: **`ffmpeg`** è richiesto sia per registrare dal microfono
+> (STT) sia per il BIP di censura. In **sviluppo** lo STT (faster-whisper) usa il
+> **microfono del Mac** (ffmpeg avfoundation); il mic a bordo del Pi entra in
+> gioco nello scenario corpo/onboard. Su Raspberry headless: ALSA puro (`afplay`
+> è solo macOS); riproduzione con `mpg123`/`ffplay`.
 
 ---
 
@@ -60,9 +70,15 @@ in base allo spazio nel pupazzo (4–5 cm vanno benissimo).
 
 ---
 
-## 4. Movimento 🤖 (livello Completo)
+## 4. Movimento 🤖
 
-Emilio muove testa, braccio, bocca, occhi. Due architetture:
+**Oggi l'unica motorizzazione attiva sono i CINGOLI** (`avanti`/`indietro`/
+`sinistra`/`destra` in `actuators.MOVES`): servono **2 motori DC + un driver**
+(es. **L298N** o **TB6612FNG**, ~3–8 €) oppure servo a rotazione continua. Testa,
+braccia, bocca e occhi sono già nel vocabolario `MOVES` ma **rinviati al futuro**
+(non cablati); per quelli valgono i **servo** qui sotto.
+
+Per i servo (espansione futura), due architetture:
 
 **A) Pi → PCA9685 → servo (CONSIGLIATA, meno pezzi)**
 
@@ -83,8 +99,9 @@ motori DC/ruote oltre ai servo.
 > scegli il **PCA9685** (opzione A) aggiungo un backend `Pca9685Mover`:
 > l'architettura è già predisposta.
 
-Quanti servo? Indicativamente: testa su/giù (1) + testa dx/sx (1) + bocca (1) +
-braccio (1) = **~4 servo**. Occhi mobili: +2.
+Quanti servo (espansione **futura**, non l'assetto base)? testa su/giù (1) + testa
+dx/sx (1) + bocca (1) + braccio (1) = ~4 servo; occhi mobili +2. Per i **cingoli**
+di oggi bastano invece **2 motori DC + driver** (L298N/TB6612).
 
 ---
 
@@ -93,7 +110,14 @@ braccio (1) = **~4 servo**. Occhi mobili: +2.
 | Componente | Esempio | Perché | Prezzo |
 |------------|---------|--------|--------|
 | **LED + resistenze** | 2 LED 5 mm + 220 Ω | Occhi che si accendono (`occhi_on/off`) | <1 € |
-| **NeoPixel / WS2812** | anello o singoli | Occhi colorati/animati | 3–8 € |
+| **NeoPixel / WS2812** ⭐ | anello o singoli | Occhi colorati/animati (servono per le espressioni) | 3–8 € |
+
+> Nel codice (`occhi.py`) gli occhi hanno già un set di **ESPRESSIONI** con colore
+> (neutro verde, **arrabbiato** rosso a forma di **forca del diavolo**, ascolta
+> bianco, pensa viola, ...) e un'**anteprima web** (`EMILIO_OCCHI=preview`). Sul
+> corpo serviranno **LED RGB indirizzabili** (NeoPixel/WS2812) per rendere il
+> colore dell'espressione, non semplici LED on/off; è previsto un futuro backend
+> `OcchiLed` sul Pi. (`occhi_on/off` in `actuators` sono LED on/off separati.)
 
 ---
 
@@ -112,9 +136,11 @@ braccio (1) = **~4 servo**. Occhi mobili: +2.
 
 ## 7. Connettività
 
-Serve **internet** (Wi-Fi del Pi va bene) per LLM e voce realistica ElevenLabs.
-Senza rete, Emilio funziona in modalità ridotta (cervello mock + voce offline
-`pyttsx3`).
+In **sviluppo** il Pi è collegato in **Wi-Fi alla mente (Mac)**, che fa LLM, STT e
+voce. Nello scenario **onboard** finale serve **internet sul Pi** per le API cloud
+(Claude + ElevenLabs). Senza rete, Emilio gira in modalità ridotta: cervello mock
+(o **LLM locale Ollama sul Mac**) + voce offline `pyttsx3` + STT offline
+faster-whisper.
 
 ---
 

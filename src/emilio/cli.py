@@ -2,7 +2,7 @@
 
 Avvio:
     python -m emilio                # modalità interattiva (mock, offline)
-    EMILIO_USE_LLM=1 EMILIO_TTS=elevenlabs python -m emilio
+    EMILIO_LLM=local EMILIO_VOICE=offline python -m emilio
 
 Comandi:
     <testo>                 parla con Emilio (LLM -> supervisore -> voce)

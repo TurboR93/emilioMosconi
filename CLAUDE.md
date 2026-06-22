@@ -13,8 +13,8 @@ censura parolacce/bestemmie ed è **disattivabile dall'amministratore**.
 
 ## Architettura "mente + corpo"
 
-- **Mac = la mente**: orchestratore + **LLM locale** + supervisore + voce.
-  È anche la macchina di sviluppo.
+- **Mac = la mente**: orchestratore + **LLM** (locale o cloud) + supervisore +
+  voce + **ascolto (STT)**. È anche la macchina di sviluppo.
 - **Raspberry Pi = il corpo**: **microfono e altoparlante a bordo**, motori dei
   **cingoli**, collegato alla mente in **Wi-Fi**.
 - **Movimento**: i **cingoli** sono l'unica motorizzazione attiva; le **braccia**
@@ -23,31 +23,37 @@ censura parolacce/bestemmie ed è **disattivabile dall'amministratore**.
 Pipeline (in [`src/emilio/agent.py`](src/emilio/agent.py)):
 `input → brain(LLM) → moderator → voce(TTS) + actuators(movimento)`.
 
-**Censura via BIP** (modello deciso col committente): il cervello **NON
-riformula**; il supervisore individua parolacce/bestemmie come span di carattere
-(`Moderator.span_censura`) e la **voce li copre con un BIP sull'audio**
-(`ElevenLabsSpeaker._say_censura` usa l'endpoint *with-timestamps* di ElevenLabs
-per mappare i caratteri sul tempo, poi `ffmpeg` sovrappone il bip; logica pura in
-[`audio_bip.py`](src/emilio/audio_bip.py); file bip in `assets/beeps/`, lista
-estendibile). **Disattivabile dall'admin** con lo stesso interruttore della
-supervisione (`set_moderazione(False)` / `/censura off`): spenta → nessuno span →
-audio **grezzo**, ma il supervisore analizza comunque per i log. Se il bip audio
-fallisce, ripiego sicuro: si risintetizza il testo con "bip" parlato (la
-parolaccia non viene mai udita). Le voci `mock`/`offline` approssimano il bip.
+**Censura via BIP, MIRATA** (modello deciso col committente): il cervello **NON
+riformula**; il supervisore individua parolacce/bestemmie e restituisce gli span
+da bippare (`Moderator.span_censura` via `_riduci_match`) — censura "alla veneta":
+di ogni parolaccia restano udibili le **prime 2 lettere** (e l'ultima per parole
+di 5+), si bippa solo il **centro** (es. `st[BIP]o`). La **voce copre quel centro
+con un BIP sull'audio**: `ElevenLabsSpeaker._say_censura` usa l'endpoint
+*with-timestamps* (`apply_text_normalization=off` + verifica allineamento 1:1) e
+`ffmpeg`; la voce **offline** fa **una sola sintesi** e stima il timing in
+proporzione ai caratteri; `mock` mostra `[BIP]` testuale (`Moderator.testo_con_bip`,
+marcatore `EMILIO_BIP_MARKER`). Logica pura in
+[`audio_bip.py`](src/emilio/audio_bip.py); bip in `assets/beeps/` (`EMILIO_BIP_DIR`).
+**Disattivabile dall'admin** (`set_moderazione(False)` / `/censura off`): spenta →
+nessuno span → audio **grezzo**, ma il supervisore analizza comunque per i log.
+Se il bip fallisce, ripiego sicuro: testo con "bip" parlato (la parolaccia non
+viene mai udita).
 
 ## Convenzioni del codice (rispettarle)
 
 - **Lingua: italiano.** Nomi di funzioni/variabili, commenti, docstring, output
   utente sono in italiano. Continua così.
 - **Core solo stdlib.** Il nucleo non ha dipendenze. Le librerie esterne
-  (`anthropic`, `requests`, `pyttsx3`, `pyserial`) sono **opzionali** e vanno
-  importate **pigramente** dentro il backend che le usa, mai a livello di modulo.
+  (`anthropic`, `requests`, `pyttsx3`, `pyserial`, `faster-whisper`) sono
+  **opzionali** e vanno importate **pigramente** dentro il backend che le usa,
+  mai a livello di modulo.
 - **Pattern a backend intercambiabili.** Ogni capacità ha un'**ABC** + una
   **factory `build_*`** + un backend **mock** (offline, senza chiavi) e uno
   reale: `Brain`/`build_brain`, `Speaker`+`VoiceManager`/`build_voice_manager`,
-  `Mover`/`build_mover`. **Aggiungere nuove capacità così** (vedi sotto).
+  `Mover`/`build_mover`, `Occhi`/`build_occhi`, `Ascoltatore`/`build_ascoltatore`.
+  **Aggiungere nuove capacità così** (vedi sotto).
 - **Mock-first.** Tutto deve girare offline e senza chiavi (`python -m emilio`).
-  I 19 test non devono mai richiedere rete o segreti.
+  I 54 test non devono mai richiedere rete o segreti.
 - **Config via env.** Ogni opzione sta in [`config.py`](src/emilio/config.py)
   (`EmilioConfig`, sovrascrivibile da variabili `EMILIO_*`). Non hardcodare.
 
@@ -63,7 +69,7 @@ parolaccia non viene mai udita). Le voci `mock`/`offline` approssimano il bip.
 ```bash
 source .venv/bin/activate              # venv Python 3.11
 pip install -e ".[dev]"                # editable + pytest (necessario col src-layout)
-python -m pytest                       # 44 test (o: python -m unittest discover -s tests)
+python -m pytest                       # 54 test (o: python -m unittest discover -s tests)
 emilio                                 # avvio (o: python -m emilio)
 ```
 
@@ -76,31 +82,46 @@ funzionano **solo dopo `pip install -e .`** (non basta stare nella cartella).
 usa l'**API nativa di Ollama** (`localhost:11434/api/chat`, campo `think:false`
 per disattivare il ragionamento lento — NON è l'API OpenAI `/v1`), per sviluppo
 offline sul Mac. Si passa a Claude (cloud) o al locale **solo via env**, senza
-toccare la pipeline. **Onboard sul Pi si userà il cloud** (`claude` + ElevenLabs):
-il Raspberry non regge l'inferenza locale.
+toccare la pipeline. Env del locale: `EMILIO_LOCAL_URL` (default
+`http://localhost:11434`), `EMILIO_LOCAL_MODEL` (default `gemma4:12b`),
+`EMILIO_LOCAL_THINK`, `EMILIO_LOCAL_KEY`. Tutti i cervelli espongono
+`reply(user_text, umore=...)`: con `umore="arrabbiato"` (provocazione rilevata) il
+prompt utente riceve una spinta a rispondere infuriato. **Onboard sul Pi si userà
+il cloud** (`claude` + ElevenLabs): il Raspberry non regge l'inferenza locale.
 
 ## Occhi (importantissimi)
 
 Capacità a sé ([occhi.py](src/emilio/occhi.py)): `Occhi` ABC + `build_occhi`
-(`EMILIO_OCCHI=mock|preview`). `OcchiPreview` apre un'**anteprima nel browser**
-(solo stdlib `http.server`) che disegna i due occhi LED — testabile senza
-hardware. Espressioni in `ESPRESSIONI`. L'agente li pilota (`parla`/`neutro`
-durante il parlato). In futuro `OcchiLed` sul Pi.
+(`EMILIO_OCCHI=mock|preview`, porta `EMILIO_OCCHI_PORT` default 8473).
+`OcchiPreview` apre un'**anteprima nel browser** (solo stdlib `http.server`) che
+disegna la **faccia del vero Emiglio** (calotta bianca, visiera nera, occhi tondi
+a LED, **bocca animata** mentre parla); se **arrabbiato** gli occhi diventano
+**forche del diavolo** animate, con scritte di stato pulsanti (TI ASCOLTO / STO
+PENSANDO / PARLO). Espressioni in `ESPRESSIONI`: neutro/felice/arrabbiato/sorpreso/
+triste/pensa/parla/ascolta/spento. CLI: `/occhi [espressione]`, `/occhi guarda <dir>`.
+L'agente li pilota da solo (pensa mentre genera, parla/arrabbiato mentre parla,
+ascolta mentre ascolta). In futuro `OcchiLed` sul Pi (LED RGB indirizzabili).
 
 ## Reattività (carattere) e ascolto
 
 - **Stato d'animo**: l'LLM inizia la risposta con un tag `[neutro|felice|
   arrabbiato|sorpreso|pensa|triste]` che `agent._estrai_emozione` stacca (non si
-  pronuncia) e usa per guidare gli occhi. `RisultatoParlato.emozione`.
-- **Si infuria**: `agent._emozione` mette `arrabbiato` se l'utente lo insulta
-  (supervisore sull'input, `EMILIO_MODERATE_INPUT`), se la risposta contiene
-  turpiloquio, o se il tag è `[arrabbiato]`. Allora occhi = forche del diavolo e
-  la risposta acida/sboccata viene **bippata**. La persona ([persona.py](src/emilio/persona.py))
-  è tarata per esplodere se provocato (la censura è a valle, non nel prompt).
+  pronuncia) e usa per guidare gli occhi. `RisultatoParlato.emozione`. Il parsing
+  è **tollerante** (virgolette/asterischi/aggettivi: `[molto arrabbiato]`,
+  `[arrabbiato!]`); se fra parentesi non c'è un'emozione nota, lascia il testo intatto.
+- **Si infuria**: `agent._provocato_input` rileva insulti/contraddizioni anche
+  SENZA parolacce (`moderation.contiene_provocazione`, lista `lexicon.PROVOCAZIONI`)
+  e gli passa `umore="arrabbiato"`; `_emozione` mette `arrabbiato` anche se la
+  risposta contiene turpiloquio o se il tag è `[arrabbiato]`. Allora occhi = forche
+  del diavolo + risposta acida bippata. La persona ([persona.py](src/emilio/persona.py))
+  è tarata per esplodere (la censura è a valle, non nel prompt). `EMILIO_MODERATE_INPUT`.
 - **Ascolto (STT)**: [ascolto.py](src/emilio/ascolto.py) — `Ascoltatore` ABC +
   `build_ascoltatore` (`EMILIO_ASCOLTO=mock|whisper`). `WhisperAscoltatore`
   registra dal microfono (ffmpeg avfoundation) e trascrive con faster-whisper
-  (offline, IT). CLI: `/ascolta [secondi]`. Gira sul Mac (non sul Pi).
+  (offline, IT) con `vad_filter` (anti-allucinazione sul silenzio). CLI:
+  `/ascolta [secondi]` (un turno) e `/conversa [secondi]` (mani libere). Env:
+  `EMILIO_STT_MODEL` (default `small`), `EMILIO_STT_LANG`, `EMILIO_STT_COMPUTE`,
+  `EMILIO_MIC_DEVICE`, `EMILIO_STT_SECONDI`. Gira sul Mac (non sul Pi).
 
 ## Come estendere (la libertà di sviluppo futuro è già predisposta)
 
