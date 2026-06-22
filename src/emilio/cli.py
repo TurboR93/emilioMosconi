@@ -12,6 +12,8 @@ Comandi:
     /voce test [testo]      prova la voce e misura la latenza
     /muovi <azione> [val]   muovi il robottino (manuale)
     /azioni                 elenca i movimenti disponibili
+    /occhi [espressione]    cambia l'espressione degli occhi (senza arg: elenca)
+    /occhi guarda <dir>     fai guardare gli occhi (centro/sinistra/destra/su/giu)
     /censura on|off|stato   controllo amministratore della supervisione
     /mod <testo>            analizza un testo col supervisore (debug)
     /reset                  azzera la memoria della conversazione
@@ -27,6 +29,7 @@ from .actuators import MOVES
 from .agent import EmilioAgent
 from .config import EmilioConfig
 from .moderation import default_moderator
+from .occhi import ESPRESSIONI
 
 
 AIUTO = __doc__
@@ -58,6 +61,23 @@ def _comando(agent: EmilioAgent, linea: str) -> bool:
             valore = float(args[1]) if len(args) > 1 else 1.0
             try:
                 agent.muovi(args[0], valore)
+            except Exception as e:
+                print(f"⚠️  {e}")
+    elif cmd == "/occhi":
+        if not args:
+            print("Espressioni disponibili:")
+            for nome, (colore, descr) in ESPRESSIONI.items():
+                print(f"  {nome:<12} {colore}  {descr}")
+            print("Uso: /occhi <espressione> | /occhi guarda <direzione>")
+        elif args[0] == "guarda":
+            try:
+                agent.guarda(args[1] if len(args) > 1 else "centro")
+            except Exception as e:
+                print(f"⚠️  {e}")
+        else:
+            try:
+                s = agent.set_occhi(args[0])
+                print(f"👀 Occhi: {s.espressione} ({s.colore})")
             except Exception as e:
                 print(f"⚠️  {e}")
     elif cmd == "/di":
@@ -113,9 +133,11 @@ def main(argv: list[str] | None = None) -> int:
     config = EmilioConfig()
     agent = EmilioAgent(config)
 
+    cervello = config.llm_backend or ("claude" if config.use_real_llm else "mock")
     print("=== Emilio è in linea ===")
-    print(f"LLM reale: {config.use_real_llm} | Voce: {agent.voce_attiva} | "
-          f"Supervisione: {'ON' if agent.moderazione_attiva else 'OFF'}")
+    print(f"Cervello: {cervello} | Voce: {agent.voce_attiva} | "
+          f"Occhi: {config.eyes_backend} | "
+          f"Supervisione (BIP): {'ON' if agent.moderazione_attiva else 'OFF'}")
     print("Digita /aiuto per i comandi, /voci per le voci, /esci per uscire.\n")
 
     while True:

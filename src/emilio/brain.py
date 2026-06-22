@@ -4,7 +4,9 @@ Due implementazioni dietro la stessa interfaccia:
   * MockBrain  -> funziona offline, senza chiavi: utile per provare la pipeline
                   e i test (può anche restituire frasi "sporche" per verificare
                   il supervisore).
-  * ClaudeBrain -> usa l'API di Claude (Anthropic). È la base LLM vera.
+  * ClaudeBrain -> usa l'API di Claude (Anthropic). È la base LLM vera (cloud).
+  * LocalBrain  -> LLM locale via server compatibile OpenAI (es. Ollama con
+                   Gemma): gira sul Mac, offline e senza chiavi cloud.
 
 Il supervisore di censura NON sta qui: il cervello genera, il supervisore
 controlla a valle (vedi agent.py). Così la base LLM e la supervisione restano
@@ -137,9 +139,86 @@ class ClaudeBrain(Brain):
         self._messages = []
 
 
+class LocalBrain(Brain):
+    """LLM locale via server compatibile OpenAI (es. Ollama con Gemma).
+
+    Gira sul Mac: nessuna chiave cloud, offline. Parla con l'endpoint
+    `/chat/completions` di un server locale (Ollama: http://localhost:11434/v1).
+    Stessa interfaccia degli altri cervelli: si seleziona da config.
+    """
+
+    def __init__(
+        self,
+        persona: Persona | None = None,
+        base_url: str = "http://localhost:11434/v1",
+        model: str = "gemma4:12b",
+        max_tokens: int = 800,
+        api_key: str = "",
+    ):
+        self.persona = persona or Persona()
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.max_tokens = max_tokens
+        self.api_key = api_key
+        self._system = self.persona.system_prompt()
+        self._messages: list[dict] = []
+
+    def _chat(self) -> str:
+        import requests  # import pigro: serve solo col cervello locale
+
+        msgs = [{"role": "system", "content": self._system}] + self._messages
+        payload = {
+            "model": self.model,
+            "messages": msgs,
+            "max_tokens": self.max_tokens,
+            "stream": False,
+        }
+        headers = {"content-type": "application/json"}
+        if self.api_key:
+            headers["authorization"] = f"Bearer {self.api_key}"
+        resp = requests.post(self.base_url + "/chat/completions",
+                             headers=headers, json=payload, timeout=120)
+        resp.raise_for_status()
+        text = resp.json()["choices"][0]["message"]["content"].strip()
+        self._messages.append({"role": "assistant", "content": text})
+        return text
+
+    def reply(self, user_text: str) -> str:
+        self._messages.append({"role": "user", "content": user_text})
+        return self._chat()
+
+    def revise(self, motivo: str = "") -> str:
+        # Non più usato dalla pipeline (la censura ora è il BIP sull'audio), ma
+        # l'interfaccia resta coerente con gli altri cervelli.
+        if self._messages and self._messages[-1]["role"] == "assistant":
+            self._messages.pop()
+        istruzione = "Riformula la tua ultima risposta senza parolacce né bestemmie."
+        if motivo:
+            istruzione += f" (Problema: {motivo}.)"
+        self._messages.append({"role": "user", "content": istruzione})
+        return self._chat()
+
+    def reset(self) -> None:
+        self._messages = []
+
+
 def build_brain(config, persona: Persona) -> Brain:
-    """Factory: sceglie il cervello in base alla configurazione."""
-    if config.use_real_llm:
+    """Factory: sceglie il cervello in base alla configurazione.
+
+    `EMILIO_LLM` = mock | claude | local. Per retrocompatibilità, se non
+    impostato, `EMILIO_USE_LLM=1` equivale a `claude`, altrimenti `mock`.
+    """
+    backend = (getattr(config, "llm_backend", "") or
+               ("claude" if config.use_real_llm else "mock")).lower()
+    if backend == "local":
+        return LocalBrain(
+            persona=persona,
+            base_url=config.local_llm_url,
+            model=config.local_llm_model,
+            max_tokens=config.max_tokens,
+            api_key=config.local_llm_key,
+        )
+    if backend == "claude":
         return ClaudeBrain(
             persona=persona,
             model=config.model,

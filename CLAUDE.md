@@ -63,19 +63,31 @@ parolaccia non viene mai udita). Le voci `mock`/`offline` approssimano il bip.
 ```bash
 source .venv/bin/activate              # venv Python 3.11
 pip install -e ".[dev]"                # editable + pytest (necessario col src-layout)
-python -m pytest                       # 19 test (o: python -m unittest discover -s tests)
+python -m pytest                       # 44 test (o: python -m unittest discover -s tests)
 emilio                                 # avvio (o: python -m emilio)
 ```
 
 Con **src-layout** il pacchetto vive in `src/emilio/`: i test e `python -m emilio`
 funzionano **solo dopo `pip install -e .`** (non basta stare nella cartella).
 
+## Cervello: backend selezionabile
+
+`EMILIO_LLM` = `mock` | `claude` | `local`. Il **`LocalBrain`** ([brain.py](src/emilio/brain.py))
+parla con un server compatibile OpenAI (Ollama/Gemma su `localhost:11434/v1`),
+per sviluppo offline sul Mac. Si passa a Claude (cloud) o al locale **solo via
+env**, senza toccare la pipeline. **Onboard sul Pi si userà il cloud** (`claude`
++ ElevenLabs): il Raspberry non regge l'inferenza locale.
+
+## Occhi (importantissimi)
+
+Capacità a sé ([occhi.py](src/emilio/occhi.py)): `Occhi` ABC + `build_occhi`
+(`EMILIO_OCCHI=mock|preview`). `OcchiPreview` apre un'**anteprima nel browser**
+(solo stdlib `http.server`) che disegna i due occhi LED — testabile senza
+hardware. Espressioni in `ESPRESSIONI`. L'agente li pilota (`parla`/`neutro`
+durante il parlato). In futuro `OcchiLed` sul Pi.
+
 ## Come estendere (la libertà di sviluppo futuro è già predisposta)
 
-- **LLM locale** → nuovo `LocalBrain(Brain)` in `brain.py` (poi `brain/`), che
-  parla con un server locale sul Mac (es. Ollama, API compatibile OpenAI) via
-  `requests`; selezionalo in `build_brain` con un nuovo valore di config. Non
-  toccare la pipeline.
 - **Corpo in Wi-Fi** → nuovo `NetworkMover(Mover)` in `actuators.py` (poi
   `hardware/`) che invia lo stesso protocollo testuale `MOVE <azione> <valore>`
   su rete invece che su seriale; aggiungi `network` a `EMILIO_ACTUATORS`.

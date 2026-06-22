@@ -24,6 +24,13 @@ class EmilioConfig:
     model: str = os.environ.get("EMILIO_MODEL", "claude-opus-4-8")
     max_tokens: int = int(os.environ.get("EMILIO_MAX_TOKENS", "800"))
     effort: str = os.environ.get("EMILIO_EFFORT", "medium")  # low|medium|high
+    # Backend del cervello: mock | claude | local. Se vuoto, EMILIO_USE_LLM=1
+    # equivale a "claude" (retrocompatibilità), altrimenti "mock".
+    llm_backend: str = os.environ.get("EMILIO_LLM", "")
+    # LLM locale (server compatibile OpenAI, es. Ollama con Gemma sul Mac).
+    local_llm_url: str = os.environ.get("EMILIO_LOCAL_URL", "http://localhost:11434/v1")
+    local_llm_model: str = os.environ.get("EMILIO_LOCAL_MODEL", "gemma4:12b")
+    local_llm_key: str = os.environ.get("EMILIO_LOCAL_KEY", "")
 
     # --- Supervisione / censura (BIP sull'audio) -----------------------
     # Attivabile/disattivabile dall'amministratore (anche a runtime).
@@ -55,6 +62,10 @@ class EmilioConfig:
     actuator_backend: str = os.environ.get("EMILIO_ACTUATORS", "mock")  # mock|serial
     serial_port: str = os.environ.get("EMILIO_SERIAL_PORT", "/dev/ttyUSB0")
     serial_baud: int = int(os.environ.get("EMILIO_SERIAL_BAUD", "9600"))
+
+    # --- Occhi (LED sul corpo / anteprima locale) ----------------------
+    eyes_backend: str = os.environ.get("EMILIO_OCCHI", "mock")  # mock|preview
+    eyes_preview_port: int = int(os.environ.get("EMILIO_OCCHI_PORT", "8473"))
 
     # --- Persona --------------------------------------------------------
     persona_path: str | None = os.environ.get("EMILIO_PERSONA")

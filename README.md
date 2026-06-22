@@ -63,9 +63,10 @@ sviluppa tutto sul Mac e si cambia solo la configurazione per il robot.
 | File | Ruolo |
 |------|-------|
 | [`persona.py`](src/emilio/persona.py) | Chi è Emilio; system prompt (1ª difesa anti-turpiloquio) |
-| [`brain.py`](src/emilio/brain.py) | Cervello: `ClaudeBrain` (cloud) o `MockBrain` (offline). *In arrivo: `LocalBrain` (LLM locale)* |
+| [`brain.py`](src/emilio/brain.py) | Cervello: `MockBrain` (offline) · `LocalBrain` (LLM locale, Ollama) · `ClaudeBrain` (cloud) |
 | [`moderation/`](src/emilio/moderation/) | **Supervisore**: lessico + motore di censura (2ª difesa) |
 | [`speech.py`](src/emilio/speech.py) | Voce: `ElevenLabsSpeaker` / `Pyttsx3Speaker` / `MockSpeaker` |
+| [`occhi.py`](src/emilio/occhi.py) | Occhi LED: `OcchiMock` / `OcchiPreview` (anteprima nel browser) |
 | [`actuators.py`](src/emilio/actuators.py) | Movimento: `SerialMover` / `MockMover`. *In arrivo: trasporto di rete (Wi-Fi)* |
 | [`agent.py`](src/emilio/agent.py) | Pipeline completa |
 | [`cli.py`](src/emilio/cli.py) | Console di controllo manuale |
@@ -111,6 +112,30 @@ export ELEVENLABS_VOICE_ID=...      # voce italiana scelta sul tuo account
 export EMILIO_USE_LLM=1
 export EMILIO_VOICE=veloce          # bassa latenza (Flash v2.5, streaming)
 emilio
+```
+
+## Cervello locale (Ollama, sul Mac)
+
+Per iterare offline e senza costi, Emilio può usare un **LLM locale** servito da
+Ollama (API compatibile OpenAI). Ottimo per lo sviluppo sul Mac:
+
+```bash
+ollama pull gemma4:12b              # scarica il modello (es. Gemma 4 12B)
+pip install -e ".[voice]"           # 'requests' serve anche per l'LLM locale
+export EMILIO_LLM=local
+export EMILIO_LOCAL_MODEL=gemma4:12b   # opzionale (default)
+emilio
+```
+
+> In produzione sul Raspberry si passerà alle **API cloud** (`EMILIO_LLM=claude`,
+> voce ElevenLabs): il Pi non regge l'inferenza locale. È solo un cambio di
+> variabili d'ambiente — il codice non cambia.
+
+## Occhi: anteprima nel browser
+
+```bash
+export EMILIO_OCCHI=preview          # apre una pagina coi due occhi LED
+emilio                               # poi: /occhi felice  ·  /occhi guarda destra
 ```
 
 ## Da codice
@@ -169,8 +194,11 @@ Da console: `/censura on|off|stato`. Per ampliare il lessico aggiungi termini in
 
 | Variabile | Default | Note |
 |-----------|---------|------|
-| `EMILIO_USE_LLM` | `0` | `1` per usare l'LLM (oggi: Claude cloud) |
-| `EMILIO_MODEL` | `claude-opus-4-8` | modello LLM |
+| `EMILIO_LLM` | (vuoto) | backend cervello: `mock`/`claude`/`local` |
+| `EMILIO_LOCAL_MODEL` | `gemma4:12b` | modello dell'LLM locale (Ollama) |
+| `EMILIO_LOCAL_URL` | `http://localhost:11434/v1` | endpoint LLM locale (compatibile OpenAI) |
+| `EMILIO_USE_LLM` | `0` | retrocompat: `1` = `claude` se `EMILIO_LLM` non impostato |
+| `EMILIO_MODEL` | `claude-opus-4-8` | modello Claude (cloud) |
 | `EMILIO_MODERATION` | `1` | supervisione (BIP) on/off all'avvio — disattivabile da admin |
 | `EMILIO_BIP_MARKER` | `[BIP]` | come appare il bip in console/log |
 | `EMILIO_BIP_DIR` | (pacchettizzati) | cartella con i file BIP (lista) |
@@ -179,6 +207,7 @@ Da console: `/censura on|off|stato`. Per ampliare il lessico aggiungi termini in
 | `EMILIO_TTS` | `mock` | ripiego se `EMILIO_VOICE` non impostato |
 | `ELEVENLABS_API_KEY` / `ELEVENLABS_VOICE_ID` | — | voce realistica IT |
 | `EMILIO_ACTUATORS` | `mock` | `serial`/`mock` (in arrivo: `network`) |
+| `EMILIO_OCCHI` | `mock` | occhi: `mock`/`preview` (anteprima nel browser) |
 | `EMILIO_SERIAL_PORT` | `/dev/ttyUSB0` | porta seriale motori |
 | `EMILIO_PERSONA` | — | file JSON con una persona custom |
 
@@ -210,7 +239,7 @@ emilioMosconi/
 ├── src/
 │   └── emilio/             # il pacchetto (src-layout)
 │       ├── agent.py · cli.py · config.py · persona.py
-│       ├── brain.py · speech.py · actuators.py · audio_bip.py
+│       ├── brain.py · speech.py · actuators.py · occhi.py · audio_bip.py
 │       ├── assets/beeps/   # file BIP di censura (bip_classico.wav)
 │       └── moderation/     # supervisore (engine + lexicon)
 └── tests/                  # test (fuori dal pacchetto)
@@ -218,15 +247,21 @@ emilioMosconi/
 
 ## Roadmap
 
-1. **Carattere** — arricchire la persona "alla Mosconi".
-2. **Voce** — scegliere/clonare una voce italiana su ElevenLabs e tararla.
-3. **Cervello locale** — `LocalBrain`: LLM locale sul Mac (es. Ollama, API
-   compatibile OpenAI) come backend drop-in accanto a `ClaudeBrain`/`MockBrain`.
-4. **Corpo Wi-Fi** — `NetworkMover`: il protocollo `MOVE <azione> <valore>`
-   passa dalla seriale alla **rete** verso il Raspberry; audio (riproduzione e
-   microfono) tra mente e corpo.
-5. **Movimento** — **cingoli** ora; **braccia** in futuro (già nel vocabolario
-   dei movimenti, non ancora cablate).
-6. **Ascolto** — wake-word + STT (es. whisper.cpp) per parlare a voce a Emilio.
+- ✅ **Cervello locale** — `LocalBrain` (Ollama, API compatibile OpenAI) accanto
+  a `ClaudeBrain`/`MockBrain`.
+- ✅ **Occhi** — espressioni + anteprima locale nel browser (`OcchiPreview`).
+- **Carattere** — arricchire la persona "alla Mosconi".
+- **Voce reale** — scegliere/clonare una voce italiana su ElevenLabs, tararla e
+  validare il BIP coi timestamp reali.
+- **Corpo Wi-Fi** — `NetworkMover`: il protocollo `MOVE <azione> <valore>` passa
+  dalla seriale alla **rete** verso il Raspberry; audio (riproduzione e microfono)
+  tra mente e corpo. Occhi LED sul Pi (`OcchiLed`).
+- **Movimento** — **cingoli** ora; **braccia** in futuro (già nel vocabolario, non
+  ancora cablate).
+- **Ascolto** — wake-word + STT (es. whisper.cpp) per parlare a voce a Emilio.
+
+> **Deploy onboard sul Raspberry:** il Pi non regge l'inferenza locale, quindi in
+> produzione si useranno le **API cloud** (cervello `claude`, voce ElevenLabs) —
+> solo un cambio di variabili d'ambiente. L'LLM locale resta per sviluppo/test.
 
 Dettagli e decisioni aperte in [`docs/PROGETTO.md`](docs/PROGETTO.md).

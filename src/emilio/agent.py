@@ -27,6 +27,7 @@ from .actuators import Mover, build_mover
 from .brain import Brain, build_brain
 from .config import EmilioConfig
 from .moderation import Moderator, Report
+from .occhi import Occhi, build_occhi
 from .persona import Persona
 from .speech import SpeechMetrics, VoiceManager, VoiceProfile, build_voice_manager
 
@@ -53,6 +54,7 @@ class EmilioAgent:
         moderator: Moderator | None = None,
         voci: VoiceManager | None = None,
         mover: Mover | None = None,
+        occhi: Occhi | None = None,
     ):
         self.config = config or EmilioConfig()
         self.persona = persona or Persona.load(self.config.persona_path)
@@ -64,6 +66,7 @@ class EmilioAgent:
         )
         self.voci = voci or build_voice_manager(self.config)
         self.mover = mover or build_mover(self.config)
+        self.occhi = occhi or build_occhi(self.config)
 
     # -- controllo amministratore sulla censura ---------------------------
 
@@ -87,6 +90,15 @@ class EmilioAgent:
     @property
     def voce_attiva(self) -> str:
         return self.voci.attiva
+
+    # -- controllo occhi ---------------------------------------------------
+
+    def set_occhi(self, espressione: str):
+        """Cambia l'espressione degli occhi a runtime."""
+        return self.occhi.imposta(espressione)
+
+    def guarda(self, direzione: str) -> None:
+        self.occhi.guarda(direzione)
 
     # -- parlato -----------------------------------------------------------
 
@@ -137,7 +149,16 @@ class EmilioAgent:
             self.mover.move("bocca")          # muove la bocca mentre parla
         except Exception:
             pass
-        return self.voci.say(testo, bleep_spans=span)
+        try:
+            self.occhi.imposta("parla")       # occhi vivaci mentre parla
+        except Exception:
+            pass
+        metriche = self.voci.say(testo, bleep_spans=span)
+        try:
+            self.occhi.imposta("neutro")      # torna neutro a fine battuta
+        except Exception:
+            pass
+        return metriche
 
     # -- movimento manuale -------------------------------------------------
 
