@@ -54,9 +54,10 @@ class EmilioConfig:
     # backend "storico" usato come ripiego se EMILIO_VOICE non è impostato.
     tts_backend: str = os.environ.get("EMILIO_TTS", "mock")
     tts_language: str = os.environ.get("EMILIO_TTS_LANG", "it")
-    # Voce di sistema per il TTS offline (pyttsx3): id o pezzo di nome, es.
-    # "Grandpa" (voce maschile da vecchio, adatta a Emilio). Vuoto = prima IT.
-    tts_voice: str = os.environ.get("EMILIO_TTS_VOICE", "")
+    # Voce di sistema per il TTS offline (pyttsx3): id o pezzo di nome.
+    # Default "Luca" (maschile it-IT); se non installata si ripiega su una voce
+    # italiana vera (es. Alice). Le voci "eloquence" vengono evitate.
+    tts_voice: str = os.environ.get("EMILIO_TTS_VOICE", "Luca")
     elevenlabs_api_key: str | None = os.environ.get("ELEVENLABS_API_KEY")
     elevenlabs_voice_id: str = os.environ.get("ELEVENLABS_VOICE_ID", "")
     elevenlabs_model: str = os.environ.get("ELEVENLABS_MODEL", "eleven_multilingual_v2")

@@ -128,48 +128,68 @@ _PAGINA = """<!doctype html><html lang="it"><head><meta charset="utf-8">
 <div id="et">…</div>
 <script>
 const W=640,H=400,c=document.getElementById('faccia'),x=c.getContext('2d'),et=document.getElementById('et');
-const OFF={centro:[0,0],sinistra:[-22,0],destra:[22,0],su:[0,-18],giu:[0,18]};
+const OFF={centro:[0,0],sinistra:[-14,0],destra:[14,0],su:[0,-10],giu:[0,10]};
 let S={espressione:'neutro',colore:'#7CFC00',aperti:true,direzione:'centro'};
 
-// Occhio normale (tondo) — il look "di prima"
-function occhio(cx,cy,col,aperti,dir){
-  x.save();x.translate(cx,cy);
-  x.shadowBlur=40;x.shadowColor=col;
-  x.fillStyle='#15151c';x.strokeStyle=col;x.lineWidth=6;
-  x.beginPath();x.ellipse(0,0,90,aperti?70:8,0,0,7);x.fill();x.stroke();
-  if(aperti){const o=OFF[dir]||[0,0];x.shadowBlur=24;x.fillStyle=col;
-    x.beginPath();x.arc(o[0],o[1],30,0,7);x.fill();
-    x.fillStyle='#0b0b0f';x.beginPath();x.arc(o[0],o[1],12,0,7);x.fill();}
+// Testa di Emiglio: calotta bianca, pannelli colorati in alto, visiera nera
+function testa(){
+  x.save();
+  x.fillStyle='#e9ecef';
+  x.beginPath();x.roundRect(150,55,340,310,[150,150,90,90]);x.fill();
+  x.fillStyle='#3b3f8f';x.beginPath();x.roundRect(238,80,52,34,8);x.fill();
+  x.fillStyle='#f2c200';x.beginPath();x.roundRect(296,74,58,34,8);x.fill();
+  x.fillStyle='#d23b2e';x.beginPath();x.roundRect(360,80,52,34,8);x.fill();
+  x.fillStyle='#0c0c11';
+  x.beginPath();x.roundRect(206,130,228,120,[30,30,52,52]);x.fill();
   x.restore();
 }
 
-// Forca del diavolo (tridente) ANIMATA: SOLO quando è arrabbiato
-function forca(cx,cy,col,t){
-  x.save();x.translate(cx,cy);x.rotate(Math.sin(t*5+cx)*0.06);  // tremolio
-  x.shadowColor=col;x.shadowBlur=30+18*Math.abs(Math.sin(t*7));  // bagliore pulsante
-  x.strokeStyle=col;x.fillStyle=col;x.lineWidth=9;x.lineCap='round';x.lineJoin='round';
-  x.beginPath();x.moveTo(0,-40);x.lineTo(0,95);x.stroke();        // asta
-  x.beginPath();x.moveTo(-34,-40);x.lineTo(34,-40);x.stroke();    // traversa
-  x.beginPath();x.moveTo(0,-40);x.lineTo(0,-92);x.stroke();       // rebbio centrale
-  x.beginPath();x.moveTo(-34,-40);x.quadraticCurveTo(-44,-78,-24,-92);x.stroke();
-  x.beginPath();x.moveTo(34,-40);x.quadraticCurveTo(44,-78,24,-92);x.stroke();
+// Occhio tondo luminoso (come i LED del vero Emiglio; il colore segue lo stato)
+function occhio(cx,cy,col,aperti,dir){
+  x.save();x.translate(cx,cy);x.shadowBlur=26;x.shadowColor=col;
+  const o=OFF[dir]||[0,0];
+  if(aperti){
+    x.fillStyle=col;x.beginPath();x.arc(o[0],o[1],23,0,7);x.fill();
+    x.fillStyle='rgba(255,255,255,.55)';x.beginPath();x.arc(o[0]-7,o[1]-7,6,0,7);x.fill();
+  }else{x.strokeStyle=col;x.lineWidth=6;x.beginPath();x.moveTo(-21,0);x.lineTo(21,0);x.stroke();}
+  x.restore();
+}
+
+// Bocca: sorriso di Emiglio; ANIMATA (si apre/chiude) quando parla; broncio se arrabbiato
+function bocca(t,parla,arr){
+  x.save();x.translate(320,300);x.lineCap='round';
+  x.strokeStyle='#2a2a2e';x.fillStyle='#2a2a2e';x.lineWidth=6;
+  if(arr){x.beginPath();x.arc(0,34,48,1.18*Math.PI,1.82*Math.PI);x.stroke();}
+  else if(parla){const ap=6+12*Math.abs(Math.sin(t*9));
+    x.beginPath();x.ellipse(0,-6,30,ap,0,0,7);x.fill();}
+  else{x.beginPath();x.arc(0,-22,48,0.16*Math.PI,0.84*Math.PI);x.stroke();}
+  x.restore();
+}
+
+// Forca del diavolo (tridente) animata: al posto degli occhi quando è arrabbiato
+function forca(cx,cy,col,t,s){
+  x.save();x.translate(cx,cy);x.scale(s,s);x.rotate(Math.sin(t*5+cx)*0.06);
+  x.shadowColor=col;x.shadowBlur=26+16*Math.abs(Math.sin(t*7));
+  x.strokeStyle=col;x.fillStyle=col;x.lineWidth=10;x.lineCap='round';x.lineJoin='round';
+  x.beginPath();x.moveTo(0,-36);x.lineTo(0,82);x.stroke();
+  x.beginPath();x.moveTo(-32,-36);x.lineTo(32,-36);x.stroke();
+  x.beginPath();x.moveTo(0,-36);x.lineTo(0,-86);x.stroke();
+  x.beginPath();x.moveTo(-32,-36);x.quadraticCurveTo(-42,-72,-22,-86);x.stroke();
+  x.beginPath();x.moveTo(32,-36);x.quadraticCurveTo(42,-72,22,-86);x.stroke();
   const tip=(px,py)=>{x.beginPath();x.moveTo(px-8,py+4);x.lineTo(px+8,py+4);x.lineTo(px,py-16);x.closePath();x.fill();};
-  tip(0,-92);tip(-24,-92);tip(24,-92);                            // punte
+  tip(0,-86);tip(-22,-86);tip(22,-86);
   x.restore();
 }
 
 let t0=performance.now();
 function frame(now){
   const t=(now-t0)/1000;
-  x.clearRect(0,0,W,H);
-  if(S.espressione==='arrabbiato'){
-    forca(195,175,S.colore,t);forca(445,175,S.colore,t+0.4);
-    et.textContent='ARRABBIATO  😈';
-  }else{
-    occhio(195,185,S.colore,S.aperti,S.direzione);
-    occhio(445,185,S.colore,S.aperti,S.direzione);
-    et.textContent=S.espressione.toUpperCase()+'  •  '+S.colore;
-  }
+  x.clearRect(0,0,W,H);testa();
+  const arr=S.espressione==='arrabbiato';
+  if(arr){forca(266,188,S.colore,t,0.62);forca(374,188,S.colore,t+0.4,0.62);}
+  else{occhio(266,180,S.colore,S.aperti,S.direzione);occhio(374,180,S.colore,S.aperti,S.direzione);}
+  bocca(t,S.espressione==='parla',arr);
+  et.textContent=(arr?'ARRABBIATO 😈':S.espressione.toUpperCase()+'  •  '+S.colore);
   requestAnimationFrame(frame);
 }
 async function poll(){try{S=await(await fetch('/stato')).json();}catch(e){et.textContent='(in attesa di Emilio…)';}}
