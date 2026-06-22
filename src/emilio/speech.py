@@ -134,18 +134,22 @@ class Pyttsx3Speaker(Speaker):
         def _blob(v):
             return f"{v.id} {getattr(v, 'name', '')}".lower()
 
+        def _it(v):
+            b = _blob(v)
+            return f"{lang}-{lang}" in b or f"{lang}_{lang}" in b or "ital" in b
+
         scelta = None
-        # 1) voce richiesta esplicitamente (per nome o id, es. "Grandpa")
+        # 1) voce richiesta esplicitamente (per nome o id, es. "Luca")
         if voce:
             scelta = next((v.id for v in voci if voce.lower() in _blob(v)), None)
-        # 2) altrimenti la prima voce della lingua giusta
+        # 2) altrimenti la prima voce della lingua NON "eloquence": quelle
+        #    eloquence (Eddy, Grandpa, ...) sono robotiche e incomprensibili.
         if scelta is None:
-            scelta = next(
-                (v.id for v in voci
-                 if f"{lang}-{lang}" in _blob(v) or f"{lang}_{lang}" in _blob(v)
-                 or "ital" in _blob(v)),
-                None,
-            )
+            scelta = next((v.id for v in voci
+                           if _it(v) and "eloquence" not in v.id.lower()), None)
+        # 3) estrema ratio: qualunque voce della lingua
+        if scelta is None:
+            scelta = next((v.id for v in voci if _it(v)), None)
         if scelta:
             self._engine.setProperty("voice", scelta)
 

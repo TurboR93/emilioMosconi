@@ -20,17 +20,17 @@ from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
 
 
-# Espressione -> (colore LED, descrizione). Palette DIABOLICA: toni rosso/fuoco.
+# Espressione -> (colore LED, descrizione).
 ESPRESSIONI: dict[str, tuple[str, str]] = {
-    "neutro":     ("#8B0000", "rosso cupo, calma minacciosa"),
-    "felice":     ("#FF6A00", "ghigno diabolico"),
-    "arrabbiato": ("#FF0000", "furia infernale"),
-    "sorpreso":   ("#FF8C00", "occhi sbarrati, bagliore"),
-    "triste":     ("#5A0010", "rosso spento"),
-    "pensa":      ("#FF2A00", "fuoco che cova"),
-    "parla":      ("#FF3B00", "bagliore mentre parla"),
-    "ascolta":    ("#FF5555", "in agguato"),
-    "spento":     ("#1A0000", "brace spenta"),
+    "neutro":     ("#7CFC00", "occhi calmi"),
+    "felice":     ("#00E5FF", "occhi sorridenti"),
+    "arrabbiato": ("#FF3B30", "furia: gli occhi diventano forche del diavolo"),
+    "sorpreso":   ("#FFD60A", "occhi spalancati"),
+    "triste":     ("#4D7CFF", "occhi bassi"),
+    "pensa":      ("#B388FF", "viola, sta pensando"),
+    "parla":      ("#00FF87", "occhi vivaci mentre parla"),
+    "ascolta":    ("#FFFFFF", "occhi attenti, sta ascoltando"),
+    "spento":     ("#222222", "LED spenti"),
 }
 
 DIREZIONI = {"centro", "sinistra", "destra", "su", "giu"}
@@ -119,34 +119,31 @@ class OcchiMock(Occhi):
 _PAGINA = """<!doctype html><html lang="it"><head><meta charset="utf-8">
 <title>Emilio — occhi</title>
 <style>
- html,body{margin:0;height:100%;background:#070406;overflow:hidden}
+ html,body{margin:0;height:100%;background:#0b0b0f;overflow:hidden}
  #faccia{display:block;margin:auto}
  #et{position:fixed;bottom:14px;left:0;right:0;text-align:center;
-     color:#a33;font:600 18px system-ui,sans-serif;letter-spacing:.08em}
+     color:#888;font:600 18px system-ui,sans-serif;letter-spacing:.04em}
 </style></head><body>
 <canvas id="faccia" width="640" height="400"></canvas>
 <div id="et">…</div>
 <script>
 const W=640,H=400,c=document.getElementById('faccia'),x=c.getContext('2d'),et=document.getElementById('et');
-const OFF={centro:[0,0],sinistra:[-20,0],destra:[20,0],su:[0,-16],giu:[0,16]};
-let S={espressione:'neutro',colore:'#8B0000',aperti:true,direzione:'centro'};
+const OFF={centro:[0,0],sinistra:[-22,0],destra:[22,0],su:[0,-18],giu:[0,18]};
+let S={espressione:'neutro',colore:'#7CFC00',aperti:true,direzione:'centro'};
 
-// Occhio diabolico: mandorla inclinata + pupilla a fessura + bagliore pulsante
-function occhio(cx,cy,col,aperti,dir,rot,t){
-  x.save();x.translate(cx,cy);x.rotate(rot);
-  x.shadowColor=col;x.shadowBlur=45+18*Math.sin(t*3);
-  const w=112,h=64;
-  x.beginPath();x.moveTo(-w,0);x.quadraticCurveTo(0,-h,w,0);
-  x.quadraticCurveTo(0,h*0.55,-w,0);x.closePath();
-  x.fillStyle='#180003';x.fill();x.lineWidth=6;x.strokeStyle=col;x.stroke();
-  if(aperti){const o=OFF[dir]||[0,0];x.shadowBlur=34;
-    x.fillStyle=col;x.beginPath();x.ellipse(o[0],o[1],11,44,0,0,7);x.fill();
-    x.fillStyle='#180003';x.beginPath();x.ellipse(o[0],o[1],3.5,30,0,0,7);x.fill();
-  }else{x.lineWidth=7;x.beginPath();x.moveTo(-w,0);x.lineTo(w,0);x.stroke();}
+// Occhio normale (tondo) — il look "di prima"
+function occhio(cx,cy,col,aperti,dir){
+  x.save();x.translate(cx,cy);
+  x.shadowBlur=40;x.shadowColor=col;
+  x.fillStyle='#15151c';x.strokeStyle=col;x.lineWidth=6;
+  x.beginPath();x.ellipse(0,0,90,aperti?70:8,0,0,7);x.fill();x.stroke();
+  if(aperti){const o=OFF[dir]||[0,0];x.shadowBlur=24;x.fillStyle=col;
+    x.beginPath();x.arc(o[0],o[1],30,0,7);x.fill();
+    x.fillStyle='#0b0b0f';x.beginPath();x.arc(o[0],o[1],12,0,7);x.fill();}
   x.restore();
 }
 
-// Forca del diavolo (tridente) ANIMATA: al posto dell'occhio quando è arrabbiato
+// Forca del diavolo (tridente) ANIMATA: SOLO quando è arrabbiato
 function forca(cx,cy,col,t){
   x.save();x.translate(cx,cy);x.rotate(Math.sin(t*5+cx)*0.06);  // tremolio
   x.shadowColor=col;x.shadowBlur=30+18*Math.abs(Math.sin(t*7));  // bagliore pulsante
@@ -166,11 +163,11 @@ function frame(now){
   const t=(now-t0)/1000;
   x.clearRect(0,0,W,H);
   if(S.espressione==='arrabbiato'){
-    forca(195,170,S.colore,t);forca(445,170,S.colore,t+0.4);
-    et.textContent='ARRABBIATO  😈  '+S.colore;
+    forca(195,175,S.colore,t);forca(445,175,S.colore,t+0.4);
+    et.textContent='ARRABBIATO  😈';
   }else{
-    occhio(195,185,S.colore,S.aperti,S.direzione,0.30,t);
-    occhio(445,185,S.colore,S.aperti,S.direzione,-0.30,t);
+    occhio(195,185,S.colore,S.aperti,S.direzione);
+    occhio(445,185,S.colore,S.aperti,S.direzione);
     et.textContent=S.espressione.toUpperCase()+'  •  '+S.colore;
   }
   requestAnimationFrame(frame);
