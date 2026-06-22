@@ -169,42 +169,33 @@ class Pyttsx3Speaker(Speaker):
         return SpeechMetrics("pyttsx3", self.profilo, None, time.perf_counter() - t0, len(text))
 
     def _say_con_bip(self, text: str, spans: list[tuple[int, int]]) -> bool:
-        """Voce offline col BIP VERO: sintetizza i pezzi puliti e ci infila il
-        file bip al posto delle parolacce (che così non vengono mai pronunciate),
-        poi concatena tutto con ffmpeg. True se va a buon fine."""
-        beep = audio_bip.scegli_beep(self.bip_dir)
-        if not beep or not shutil.which("ffmpeg"):
-            return False
-        # Segmenta il testo in pezzi puliti e segnaposto-bip.
-        pezzi: list[tuple[str, str]] = []
-        i = 0
-        for a, b in sorted(spans):
-            a = max(0, a); b = min(b, len(text))
-            if b <= a:
-                continue
-            if a > i:
-                pezzi.append(("voce", text[i:a]))
-            pezzi.append(("bip", ""))
-            i = b
-        if i < len(text):
-            pezzi.append(("voce", text[i:]))
+        """Voce offline col BIP VERO sul CENTRO delle parolacce.
 
+        Una SOLA sintesi dell'intera frase (pyttsx3 si rompe se chiamato tante
+        volte di fila), poi `ffmpeg` muta e ci sovrappone il bip sugli intervalli
+        sporchi. La voce offline non dà i timestamp: si stima la posizione nel
+        tempo in proporzione ai caratteri — approssimato ma affidabile (con
+        ElevenLabs il timing è invece esatto). True se va a buon fine.
+        """
+        beep = audio_bip.scegli_beep(self.bip_dir)
+        if not beep or not shutil.which("ffmpeg") or not text.strip() or not spans:
+            return False
         tmp = tempfile.mkdtemp(prefix="emilio_bip_")
         try:
-            files: list[str] = []
-            idx = 0
-            for tipo, seg in pezzi:
-                if tipo == "bip":
-                    files.append(str(beep))
-                elif seg.strip():
-                    wav = os.path.join(tmp, f"seg{idx}.wav")
-                    idx += 1
-                    self._engine.save_to_file(seg, wav)
-                    self._engine.runAndWait()
-                    if os.path.exists(wav) and os.path.getsize(wav) > 0:
-                        files.append(wav)
+            voce = os.path.join(tmp, "voce.wav")
+            self._engine.save_to_file(text, voce)   # un'unica sintesi
+            self._engine.runAndWait()
+            if not (os.path.exists(voce) and os.path.getsize(voce) > 0):
+                return False
+            dur = audio_bip._durata(voce)
+            if not dur:
+                return False
+            # carattere -> tempo, stima uniforme; copre il centro di ogni parolaccia
+            n = max(1, len(text))
+            intervalli = audio_bip.fondi_intervalli(
+                [(a / n * dur, b / n * dur) for a, b in spans])
             out = os.path.join(tmp, "finale.wav")
-            if audio_bip.concatena_audio(files, out):
+            if intervalli and audio_bip.applica_bip(voce, intervalli, beep, out):
                 if not _play_file(out):
                     print(f"🔊 [Emilio] (audio bippato in {out}, nessun player)")
                 return True
