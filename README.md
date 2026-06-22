@@ -67,6 +67,7 @@ sviluppa tutto sul Mac e si cambia solo la configurazione per il robot.
 | [`moderation/`](src/emilio/moderation/) | **Supervisore**: lessico + motore di censura (2ª difesa) |
 | [`speech.py`](src/emilio/speech.py) | Voce: `ElevenLabsSpeaker` / `Pyttsx3Speaker` / `MockSpeaker` |
 | [`occhi.py`](src/emilio/occhi.py) | Occhi LED: `OcchiMock` / `OcchiPreview` (anteprima nel browser) |
+| [`ascolto.py`](src/emilio/ascolto.py) | Riconoscimento vocale (STT): `WhisperAscoltatore` / `MockAscoltatore` |
 | [`actuators.py`](src/emilio/actuators.py) | Movimento: `SerialMover` / `MockMover`. *In arrivo: trasporto di rete (Wi-Fi)* |
 | [`agent.py`](src/emilio/agent.py) | Pipeline completa |
 | [`cli.py`](src/emilio/cli.py) | Console di controllo manuale |
@@ -134,9 +135,32 @@ emilio
 ## Occhi: anteprima nel browser
 
 ```bash
-export EMILIO_OCCHI=preview          # apre una pagina coi due occhi LED
+export EMILIO_OCCHI=preview          # apre una pagina con la faccia di Emiglio
 emilio                               # poi: /occhi felice  ·  /occhi guarda destra
 ```
+
+## Reattività: se lo provochi, si infuria
+
+Se lo **insulti** o lo **contraddici**, Emilio si infuria: gli **occhi diventano
+forche del diavolo** e risponde **acido**, con parolacce e bestemmie — che il
+supervisore **copre col BIP** (lo stesso interruttore admin le può disattivare).
+Lo stato d'animo guida gli occhi: l'LLM lo dichiara con un tag iniziale
+(`[arrabbiato]`, `[felice]`, `[pensa]`, ...) che non viene mai pronunciato.
+
+## Parlare a voce (microfono + STT)
+
+Per parlargli davvero, come farà il prodotto finale:
+
+```bash
+pip install -e ".[listen]"           # faster-whisper (STT offline, italiano)
+export EMILIO_ASCOLTO=whisper
+export EMILIO_STT_MODEL=small        # tiny|base|small|medium (qualità vs velocità)
+EMILIO_LLM=local EMILIO_VOICE=offline EMILIO_OCCHI=preview emilio
+# poi nel prompt:  /ascolta 5   → registra 5s dal microfono e Emilio risponde
+```
+
+> Il microfono su macOS chiede il **permesso** la prima volta (al Terminale/app
+> che lancia Emilio). Lo STT, come l'LLM locale, gira sul **Mac**.
 
 ## Da codice
 
@@ -208,6 +232,9 @@ Da console: `/censura on|off|stato`. Per ampliare il lessico aggiungi termini in
 | `ELEVENLABS_API_KEY` / `ELEVENLABS_VOICE_ID` | — | voce realistica IT |
 | `EMILIO_ACTUATORS` | `mock` | `serial`/`mock` (in arrivo: `network`) |
 | `EMILIO_OCCHI` | `mock` | occhi: `mock`/`preview` (anteprima nel browser) |
+| `EMILIO_ASCOLTO` | `mock` | STT: `mock`/`whisper` (microfono + faster-whisper) |
+| `EMILIO_STT_MODEL` | `small` | modello whisper: `tiny`/`base`/`small`/`medium` |
+| `EMILIO_MIC_DEVICE` | (auto) | indice microfono avfoundation (macOS) |
 | `EMILIO_SERIAL_PORT` | `/dev/ttyUSB0` | porta seriale motori |
 | `EMILIO_PERSONA` | — | file JSON con una persona custom |
 
@@ -249,7 +276,12 @@ emilioMosconi/
 
 - ✅ **Cervello locale** — `LocalBrain` (Ollama, API compatibile OpenAI) accanto
   a `ClaudeBrain`/`MockBrain`.
-- ✅ **Occhi** — espressioni + anteprima locale nel browser (`OcchiPreview`).
+- ✅ **Occhi** — faccia di Emiglio + anteprima nel browser (`OcchiPreview`);
+  forche del diavolo + bocca animata.
+- ✅ **Reattività** — si infuria se insultato/contraddetto (occhi + risposta
+  acida bippata), via tag di stato d'animo dell'LLM.
+- ✅ **Ascolto (STT)** — parla a voce: microfono + faster-whisper (`/ascolta`).
+  *In arrivo: wake-word + VAD per il dialogo continuo.*
 - **Carattere** — arricchire la persona "alla Mosconi".
 - **Voce reale** — scegliere/clonare una voce italiana su ElevenLabs, tararla e
   validare il BIP coi timestamp reali.
@@ -258,7 +290,6 @@ emilioMosconi/
   tra mente e corpo. Occhi LED sul Pi (`OcchiLed`).
 - **Movimento** — **cingoli** ora; **braccia** in futuro (già nel vocabolario, non
   ancora cablate).
-- **Ascolto** — wake-word + STT (es. whisper.cpp) per parlare a voce a Emilio.
 
 > **Deploy onboard sul Raspberry:** il Pi non regge l'inferenza locale, quindi in
 > produzione si useranno le **API cloud** (cervello `claude`, voce ElevenLabs) —

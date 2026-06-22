@@ -38,22 +38,33 @@ class Brain(ABC):
 class MockBrain(Brain):
     """Cervello finto, deterministico, senza rete.
 
-    Pesca da un repertorio di battute "in carattere". Se `naughty=True` può
-    restituire frasi con turpiloquio: serve per collaudare il supervisore.
+    Pesca da un repertorio di battute "in carattere". Se viene PROVOCATO
+    (insulti o contraddizioni nell'input) — oppure con `naughty=True` — risponde
+    in modo acido e sboccato: serve per collaudare la reattività e il bip.
+    Prefigge un tag di stato d'animo come farebbe l'LLM vero ([arrabbiato], ...).
     """
 
     CLEAN = [
-        "Eh, ai miei tempi sì che si stava bene, mica come adesso.",
-        "Ma guarda te se uno deve sentire certe cose... vabbè, dimmi pure.",
-        "Insomma, io la penso così e non mi smuove nessuno.",
-        "Senti, lascia perdere, te lo dico io come funziona.",
-        "Ma certo, figurati, c'ho passato una vita su queste cose.",
+        "[neutro] Eh, ai miei tempi sì che si stava bene, mica come adesso.",
+        "[neutro] Ma guarda te se uno deve sentire certe cose... vabbè, dimmi pure.",
+        "[felice] Insomma, io la penso così e non mi smuove nessuno.",
+        "[pensa] Senti, lascia perdere, te lo dico io come funziona.",
+        "[neutro] Ma certo, figurati, c'ho passato una vita su queste cose.",
     ]
-    NAUGHTY = [
-        "Porco dio che giornata, non se ne può più!",
-        "Ma vaffanculo va', che roba è questa.",
-        "Sei proprio uno stronzo, te lo dico in faccia.",
+    ARRABBIATO = [
+        "[arrabbiato] Porco dio, ma chi ti credi di essere? Abbassa la cresta!",
+        "[arrabbiato] Ma vaffanculo va', stronzo, ripetilo se hai coraggio!",
+        "[arrabbiato] Ma che cazzo dici, dio cane! Sei proprio un coglione!",
+        "[arrabbiato] Vaffanculo, testa di cazzo, ma quanto sei coglione, porca madonna!",
     ]
+
+    # Marcatori (sottostringa) che indicano insulto o contraddizione nell'input.
+    _PROVOCAZIONI = (
+        "vaffan", "stronz", "cazz", "merd", "scem", "cretin", "idiot", "imbecill",
+        "deficien", "stupid", "coglion", "fai schifo", "ti odio", "sei brutto",
+        "ti sbagli", "hai torto", "non è vero", "non e vero", "non sono d'accordo",
+        "ma stai zitto", "sei un", "non capisci", "non vali",
+    )
 
     def __init__(self, persona: Persona | None = None, naughty: bool = False, seed: int | None = None):
         self.persona = persona or Persona()
@@ -61,9 +72,13 @@ class MockBrain(Brain):
         self._rng = random.Random(seed)
         self._last_user = ""
 
+    def _provocato(self, testo: str) -> bool:
+        t = testo.lower()
+        return any(m in t for m in self._PROVOCAZIONI)
+
     def reply(self, user_text: str) -> str:
         self._last_user = user_text
-        pool = self.NAUGHTY if self.naughty else self.CLEAN
+        pool = self.ARRABBIATO if (self.naughty or self._provocato(user_text)) else self.CLEAN
         return self._rng.choice(pool)
 
     def revise(self, motivo: str = "") -> str:

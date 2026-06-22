@@ -86,6 +86,21 @@ Capacità a sé ([occhi.py](src/emilio/occhi.py)): `Occhi` ABC + `build_occhi`
 hardware. Espressioni in `ESPRESSIONI`. L'agente li pilota (`parla`/`neutro`
 durante il parlato). In futuro `OcchiLed` sul Pi.
 
+## Reattività (carattere) e ascolto
+
+- **Stato d'animo**: l'LLM inizia la risposta con un tag `[neutro|felice|
+  arrabbiato|sorpreso|pensa|triste]` che `agent._estrai_emozione` stacca (non si
+  pronuncia) e usa per guidare gli occhi. `RisultatoParlato.emozione`.
+- **Si infuria**: `agent._emozione` mette `arrabbiato` se l'utente lo insulta
+  (supervisore sull'input, `EMILIO_MODERATE_INPUT`), se la risposta contiene
+  turpiloquio, o se il tag è `[arrabbiato]`. Allora occhi = forche del diavolo e
+  la risposta acida/sboccata viene **bippata**. La persona ([persona.py](src/emilio/persona.py))
+  è tarata per esplodere se provocato (la censura è a valle, non nel prompt).
+- **Ascolto (STT)**: [ascolto.py](src/emilio/ascolto.py) — `Ascoltatore` ABC +
+  `build_ascoltatore` (`EMILIO_ASCOLTO=mock|whisper`). `WhisperAscoltatore`
+  registra dal microfono (ffmpeg avfoundation) e trascrive con faster-whisper
+  (offline, IT). CLI: `/ascolta [secondi]`. Gira sul Mac (non sul Pi).
+
 ## Come estendere (la libertà di sviluppo futuro è già predisposta)
 
 - **Corpo in Wi-Fi** → nuovo `NetworkMover(Mover)` in `actuators.py` (poi

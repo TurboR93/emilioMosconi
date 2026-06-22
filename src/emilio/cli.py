@@ -14,6 +14,7 @@ Comandi:
     /azioni                 elenca i movimenti disponibili
     /occhi [espressione]    cambia l'espressione degli occhi (senza arg: elenca)
     /occhi guarda <dir>     fai guardare gli occhi (centro/sinistra/destra/su/giu)
+    /ascolta [secondi]      parla a VOCE: registra dal microfono e Emilio risponde
     /censura on|off|stato   controllo amministratore della supervisione
     /mod <testo>            analizza un testo col supervisore (debug)
     /reset                  azzera la memoria della conversazione
@@ -104,6 +105,26 @@ def _comando(agent: EmilioAgent, linea: str) -> bool:
                 print(f"✅ Voce attiva: {p.name} ({p.descrizione})")
             except ValueError as e:
                 print(f"⚠️  {e}")
+    elif cmd == "/ascolta":
+        sec = None
+        if args:
+            try:
+                sec = float(args[0])
+            except ValueError:
+                pass
+        print("🎤 Ascolto... parla pure (poi attendi la trascrizione).")
+        try:
+            testo = agent.ascolta(sec)
+        except Exception as e:
+            print(f"⚠️  microfono/STT non disponibile: {e}")
+            return True
+        print(f"🎤 Hai detto: {testo!r}")
+        if testo.strip():
+            ris = agent.parla(testo)
+            voce = f" | {ris.voce}" if ris.voce else ""
+            print(f"   [emozione: {ris.emozione} | latenza LLM: {ris.latenza_llm*1000:.0f}ms{voce}]")
+            if ris.censura_applicata:
+                print(f"   [supervisore: {ris.report.summary()} | bip: {len(ris.span_censura)}]")
     elif cmd == "/censura":
         sub = args[0].lower() if args else "stato"
         if sub == "on":
@@ -136,9 +157,9 @@ def main(argv: list[str] | None = None) -> int:
     cervello = config.llm_backend or ("claude" if config.use_real_llm else "mock")
     print("=== Emilio è in linea ===")
     print(f"Cervello: {cervello} | Voce: {agent.voce_attiva} | "
-          f"Occhi: {config.eyes_backend} | "
+          f"Occhi: {config.eyes_backend} | Ascolto: {config.stt_backend} | "
           f"Supervisione (BIP): {'ON' if agent.moderazione_attiva else 'OFF'}")
-    print("Digita /aiuto per i comandi, /voci per le voci, /esci per uscire.\n")
+    print("Digita /aiuto per i comandi, /ascolta per parlare a voce, /esci per uscire.\n")
 
     while True:
         try:
@@ -154,7 +175,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             ris = agent.parla(linea)
             voce = f" | {ris.voce}" if ris.voce else ""
-            print(f"   [latenza LLM: {ris.latenza_llm*1000:.0f}ms{voce}]")
+            print(f"   [emozione: {ris.emozione} | latenza LLM: {ris.latenza_llm*1000:.0f}ms{voce}]")
             if ris.censura_applicata:
                 print(f"   [supervisore: {ris.report.summary()} | "
                       f"bip applicati: {len(ris.span_censura)}]")

@@ -73,5 +73,14 @@ class EmilioConfig:
     eyes_backend: str = os.environ.get("EMILIO_OCCHI", "mock")  # mock|preview
     eyes_preview_port: int = int(os.environ.get("EMILIO_OCCHI_PORT", "8473"))
 
+    # --- Ascolto (STT / microfono) -------------------------------------
+    # Per parlare a Emilio a voce. mock = frase fissa (test); whisper = microfono
+    # reale + faster-whisper (offline, italiano) sul Mac.
+    stt_backend: str = os.environ.get("EMILIO_ASCOLTO", "mock")  # mock|whisper
+    stt_model: str = os.environ.get("EMILIO_STT_MODEL", "small")  # tiny|base|small|medium
+    stt_lingua: str = os.environ.get("EMILIO_STT_LANG", "it")
+    mic_device: str = os.environ.get("EMILIO_MIC_DEVICE", "")    # indice avfoundation; vuoto=auto
+    stt_secondi: float = float(os.environ.get("EMILIO_STT_SECONDI", "5"))
+
     # --- Persona --------------------------------------------------------
     persona_path: str | None = os.environ.get("EMILIO_PERSONA")
