@@ -140,25 +140,29 @@ class ClaudeBrain(Brain):
 
 
 class LocalBrain(Brain):
-    """LLM locale via server compatibile OpenAI (es. Ollama con Gemma).
+    """LLM locale via Ollama (gira sul Mac, offline, senza chiavi cloud).
 
-    Gira sul Mac: nessuna chiave cloud, offline. Parla con l'endpoint
-    `/chat/completions` di un server locale (Ollama: http://localhost:11434/v1).
+    Usa l'API nativa di Ollama (`/api/chat`) perché permette di DISATTIVARE il
+    "thinking" dei modelli (es. Gemma 4): col thinking acceso la latenza esplode
+    (centinaia di token di ragionamento prima della risposta — ~30s). Con
+    `think=False` le risposte restano brevi e rapide, adatte al dialogo dal vivo.
     Stessa interfaccia degli altri cervelli: si seleziona da config.
     """
 
     def __init__(
         self,
         persona: Persona | None = None,
-        base_url: str = "http://localhost:11434/v1",
+        base_url: str = "http://localhost:11434",
         model: str = "gemma4:12b",
         max_tokens: int = 800,
+        think: bool = False,
         api_key: str = "",
     ):
         self.persona = persona or Persona()
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.max_tokens = max_tokens
+        self.think = think
         self.api_key = api_key
         self._system = self.persona.system_prompt()
         self._messages: list[dict] = []
@@ -170,16 +174,17 @@ class LocalBrain(Brain):
         payload = {
             "model": self.model,
             "messages": msgs,
-            "max_tokens": self.max_tokens,
             "stream": False,
+            "think": self.think,                         # False = niente ragionamento lento
+            "options": {"num_predict": self.max_tokens},
         }
         headers = {"content-type": "application/json"}
         if self.api_key:
             headers["authorization"] = f"Bearer {self.api_key}"
-        resp = requests.post(self.base_url + "/chat/completions",
+        resp = requests.post(self.base_url + "/api/chat",
                              headers=headers, json=payload, timeout=120)
         resp.raise_for_status()
-        text = resp.json()["choices"][0]["message"]["content"].strip()
+        text = resp.json()["message"]["content"].strip()
         self._messages.append({"role": "assistant", "content": text})
         return text
 
@@ -216,6 +221,7 @@ def build_brain(config, persona: Persona) -> Brain:
             base_url=config.local_llm_url,
             model=config.local_llm_model,
             max_tokens=config.max_tokens,
+            think=config.local_llm_think,
             api_key=config.local_llm_key,
         )
     if backend == "claude":

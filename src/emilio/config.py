@@ -27,9 +27,11 @@ class EmilioConfig:
     # Backend del cervello: mock | claude | local. Se vuoto, EMILIO_USE_LLM=1
     # equivale a "claude" (retrocompatibilità), altrimenti "mock".
     llm_backend: str = os.environ.get("EMILIO_LLM", "")
-    # LLM locale (server compatibile OpenAI, es. Ollama con Gemma sul Mac).
-    local_llm_url: str = os.environ.get("EMILIO_LOCAL_URL", "http://localhost:11434/v1")
+    # LLM locale via Ollama (API nativa) sul Mac. think=False evita il
+    # "ragionamento" lento dei modelli come Gemma 4 (latenza ~30s -> pochi s).
+    local_llm_url: str = os.environ.get("EMILIO_LOCAL_URL", "http://localhost:11434")
     local_llm_model: str = os.environ.get("EMILIO_LOCAL_MODEL", "gemma4:12b")
+    local_llm_think: bool = _env_bool("EMILIO_LOCAL_THINK", False)
     local_llm_key: str = os.environ.get("EMILIO_LOCAL_KEY", "")
 
     # --- Supervisione / censura (BIP sull'audio) -----------------------

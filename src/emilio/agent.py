@@ -108,6 +108,10 @@ class EmilioAgent:
         Il cervello NON riformula: si analizza il testo grezzo e si calcolano
         gli span da coprire col BIP sull'audio (vedi `di`/`parla`).
         """
+        try:
+            self.occhi.imposta("pensa")       # occhi "pensierosi" mentre genera
+        except Exception:
+            pass
         t0 = time.perf_counter()
         testo_grezzo = self.brain.reply(input_utente)
         latenza_llm = time.perf_counter() - t0

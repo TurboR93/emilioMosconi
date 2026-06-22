@@ -24,7 +24,8 @@ class TestSelezioneCervello(unittest.TestCase):
         b = build_brain(cfg, Persona())
         self.assertIsInstance(b, LocalBrain)
         self.assertEqual(b.model, "gemma4:12b")
-        self.assertTrue(b.base_url.endswith("/v1"))
+        self.assertIn("11434", b.base_url)
+        self.assertFalse(b.think)   # thinking OFF di default (bassa latenza)
 
     def test_use_real_llm_retrocompat_resta_mock_se_non_anthropic(self):
         # EMILIO_LLM vuoto + use_real_llm False => mock (non tocca la rete)
