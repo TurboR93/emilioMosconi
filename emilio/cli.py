@@ -1,0 +1,145 @@
+"""Console di controllo manuale di Emilio.
+
+Avvio:
+    python -m emilio                # modalità interattiva (mock, offline)
+    EMILIO_USE_LLM=1 EMILIO_TTS=elevenlabs python -m emilio
+
+Comandi:
+    <testo>                 parla con Emilio (LLM -> supervisore -> voce)
+    /di <testo>             fai dire una frase esatta (passa dal supervisore)
+    /voci                   elenca i profili voce disponibili
+    /voce <nome>            cambia la voce attiva (es. /voce veloce)
+    /voce test [testo]      prova la voce e misura la latenza
+    /muovi <azione> [val]   muovi il robottino (manuale)
+    /azioni                 elenca i movimenti disponibili
+    /censura on|off|stato   controllo amministratore della supervisione
+    /mod <testo>            analizza un testo col supervisore (debug)
+    /reset                  azzera la memoria della conversazione
+    /aiuto                  mostra questo aiuto
+    /esci                   esci
+"""
+
+from __future__ import annotations
+
+import sys
+
+from .actuators import MOVES
+from .agent import EmilioAgent
+from .config import EmilioConfig
+from .moderation import default_moderator
+
+
+AIUTO = __doc__
+
+
+def _stampa_azioni() -> None:
+    print("Movimenti disponibili:")
+    for nome, descr in MOVES.items():
+        print(f"  {nome:<12} {descr}")
+
+
+def _comando(agent: EmilioAgent, linea: str) -> bool:
+    """Gestisce un comando '/...'. Ritorna False se bisogna uscire."""
+    parti = linea.split()
+    cmd = parti[0].lower()
+    args = parti[1:]
+
+    if cmd in ("/esci", "/quit", "/exit"):
+        return False
+
+    if cmd in ("/aiuto", "/help"):
+        print(AIUTO)
+    elif cmd == "/azioni":
+        _stampa_azioni()
+    elif cmd == "/muovi":
+        if not args:
+            print("Uso: /muovi <azione> [valore]")
+        else:
+            valore = float(args[1]) if len(args) > 1 else 1.0
+            try:
+                agent.muovi(args[0], valore)
+            except Exception as e:
+                print(f"⚠️  {e}")
+    elif cmd == "/di":
+        if args:
+            m = agent.di(" ".join(args))
+            print(f"   [{m}]")
+        else:
+            print("Uso: /di <testo>")
+    elif cmd == "/voci":
+        print(f"Voce attiva: {agent.voce_attiva}")
+        for p in agent.lista_voci():
+            attiva = "→" if p.name == agent.voce_attiva else " "
+            print(f" {attiva} {p.name:<12} [{p.backend}] {p.descrizione}")
+    elif cmd == "/voce":
+        if not args:
+            print(f"Voce attiva: {agent.voce_attiva}. Uso: /voce <nome> | /voce test [testo]")
+        elif args[0] == "test":
+            frase = " ".join(args[1:]) or "Buongiorno, sono Emilio. Come va oggi?"
+            m = agent.di(frase)
+            print(f"   [{m}]")
+        else:
+            try:
+                p = agent.set_voce(args[0])
+                print(f"✅ Voce attiva: {p.name} ({p.descrizione})")
+            except ValueError as e:
+                print(f"⚠️  {e}")
+    elif cmd == "/censura":
+        sub = args[0].lower() if args else "stato"
+        if sub == "on":
+            agent.set_moderazione(True)
+            print("✅ Supervisione ATTIVA.")
+        elif sub == "off":
+            agent.set_moderazione(False)
+            print("⚠️  Supervisione DISATTIVATA (Emilio può dire di tutto).")
+        else:
+            stato = "ATTIVA" if agent.moderazione_attiva else "DISATTIVATA"
+            print(f"Supervisione: {stato}")
+    elif cmd == "/mod":
+        testo = " ".join(args)
+        rep = default_moderator.review(testo)
+        print(f"Analisi: {rep.summary()}")
+        if not rep.clean:
+            print(f"Ripulito: {default_moderator.sanitize(testo, rep)}")
+    elif cmd == "/reset":
+        agent.reset()
+        print("Memoria azzerata.")
+    else:
+        print(f"Comando sconosciuto: {cmd}. Digita /aiuto.")
+    return True
+
+
+def main(argv: list[str] | None = None) -> int:
+    config = EmilioConfig()
+    agent = EmilioAgent(config)
+
+    print("=== Emilio è in linea ===")
+    print(f"LLM reale: {config.use_real_llm} | Voce: {agent.voce_attiva} | "
+          f"Supervisione: {'ON' if agent.moderazione_attiva else 'OFF'}")
+    print("Digita /aiuto per i comandi, /voci per le voci, /esci per uscire.\n")
+
+    while True:
+        try:
+            linea = input("tu> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if not linea:
+            continue
+        if linea.startswith("/"):
+            if not _comando(agent, linea):
+                break
+        else:
+            ris = agent.parla(linea)
+            voce = f" | {ris.voce}" if ris.voce else ""
+            print(f"   [latenza LLM: {ris.latenza_llm*1000:.0f}ms{voce}]")
+            if ris.censura_applicata or ris.rigenerazioni:
+                print(f"   [supervisore: {ris.report.summary()} | "
+                      f"rigenerazioni: {ris.rigenerazioni}]")
+
+    print("Alla prossima!")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
