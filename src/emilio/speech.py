@@ -124,15 +124,30 @@ class MockSpeaker(Speaker):
 
 
 class Pyttsx3Speaker(Speaker):
-    def __init__(self, profilo: str = "offline", language: str = "it"):
+    def __init__(self, profilo: str = "offline", language: str = "it", voce: str = ""):
         import pyttsx3
         self.profilo = profilo
         self._engine = pyttsx3.init()
-        for voice in self._engine.getProperty("voices"):
-            blob = f"{voice.id} {getattr(voice, 'name', '')}".lower()
-            if "it" in blob or "ital" in blob:
-                self._engine.setProperty("voice", voice.id)
-                break
+        voci = self._engine.getProperty("voices")
+        lang = language.lower()
+
+        def _blob(v):
+            return f"{v.id} {getattr(v, 'name', '')}".lower()
+
+        scelta = None
+        # 1) voce richiesta esplicitamente (per nome o id, es. "Grandpa")
+        if voce:
+            scelta = next((v.id for v in voci if voce.lower() in _blob(v)), None)
+        # 2) altrimenti la prima voce della lingua giusta
+        if scelta is None:
+            scelta = next(
+                (v.id for v in voci
+                 if f"{lang}-{lang}" in _blob(v) or f"{lang}_{lang}" in _blob(v)
+                 or "ital" in _blob(v)),
+                None,
+            )
+        if scelta:
+            self._engine.setProperty("voice", scelta)
 
     def say(self, text: str, bleep_spans: list[tuple[int, int]] | None = None) -> SpeechMetrics:
         t0 = time.perf_counter()
@@ -372,7 +387,8 @@ class VoiceManager:
                 bip_dir=getattr(self.config, "bip_dir", None),
             )
         if p.backend == "pyttsx3":
-            return Pyttsx3Speaker(profilo=p.name, language=self.config.tts_language)
+            return Pyttsx3Speaker(profilo=p.name, language=self.config.tts_language,
+                                  voce=getattr(self.config, "tts_voice", ""))
         return MockSpeaker(profilo=p.name,
                            bip_marker=getattr(self.config, "bip_marker", "[BIP]"))
 
