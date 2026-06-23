@@ -21,7 +21,11 @@ def _env_bool(name: str, default: bool) -> bool:
 class EmilioConfig:
     # --- Cervello (LLM via API) ----------------------------------------
     use_real_llm: bool = _env_bool("EMILIO_USE_LLM", False)
-    model: str = os.environ.get("EMILIO_MODEL", "claude-opus-4-8")
+    # Modello del CERVELLO Claude (specifico, coerente con EMILIO_LOCAL_MODEL /
+    # EMILIO_CLOUD_MODEL / EMILIO_STT_MODEL). `EMILIO_MODEL` resta come ALIAS
+    # DEPRECATO per retrocompatibilità.
+    claude_model: str = (os.environ.get("EMILIO_CLAUDE_MODEL")
+                         or os.environ.get("EMILIO_MODEL", "claude-opus-4-8"))
     # Risposte BREVI: meno token = generazione più rapida e meno crediti voce
     # (ElevenLabs fattura a carattere). 220 basta per una o due battute.
     max_tokens: int = int(os.environ.get("EMILIO_MAX_TOKENS", "220"))

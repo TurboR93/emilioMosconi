@@ -13,7 +13,7 @@ PARLARE
 
 CAMBIARE AL VOLO (senza riavviare) — senza argomenti compare un MENU numerato
     /cervello [..]                 scegli il "cervello": mock|local|claude|cloud
-    /modello [nome]                scegli il modello LLM (menu, o nome diretto)
+    /modello-llm [nome]            scegli il modello dell'LLM/cervello (menu) — alias: /modello
     /persona [nome|file]           scegli la personalità (menu, o nome diretto)
     /voce [nome]                   scegli la voce (menu) · /voce test [testo]
     /censura on|off                bip delle bestemmie on/off
@@ -88,9 +88,10 @@ def _banner(agent: EmilioAgent, config: EmilioConfig) -> None:
     print("  • scrivi e premi invio    →  parli con Emilio (a testo)")
     print("  • /conversa               →  conversazione a VOCE (mani libere)")
     print("  • /cervello               →  scegli il cervello (menu): mock · local · claude · cloud")
-    print("  • /modello                →  scegli il modello da un menu numerato")
+    print("  • /modello-llm            →  scegli il modello dell'LLM da un menu numerato")
     print("  • /persona                →  scegli la personalità da un menu numerato")
     print("  • /voce                   →  scegli la voce da un menu numerato")
+    print("  • /censura on|off         →  il BIP sulle bestemmie (la censura) acceso/spento")
     print("  • /aiuto                  →  tutti i comandi        ·    /esci  per uscire")
     print()
 
@@ -219,7 +220,7 @@ _MODELLI_CLOUD = {
 
 def _modello_attuale(agent: EmilioAgent) -> str | None:
     return {"local": agent.config.local_llm_model,
-            "claude": agent.config.model,
+            "claude": agent.config.claude_model,
             "cloud": agent.config.cloud_llm_model}.get(agent.backend_cervello)
 
 
@@ -301,7 +302,7 @@ def _comando(agent: EmilioAgent, linea: str) -> bool:
                 print(f"✅ Cervello: {agent.set_cervello(scelto)}  (memoria azzerata)")
             except Exception as e:
                 print(f"⚠️  {e}")
-    elif cmd in ("/modello", "/modelli"):
+    elif cmd in ("/modello-llm", "/modelli-llm", "/modello", "/modelli"):
         # senza argomenti: menu numerato; con argomento: scelta diretta (nome).
         scelto = args[0] if args else _scegli(
             f"Modelli per il cervello '{agent.backend_cervello}':",

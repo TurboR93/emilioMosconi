@@ -19,7 +19,7 @@ il codice:
 
 - una **persona** nuova = un file JSON in più → appare nel menu `/persona`;
 - un **modello** nuovo del provider = lo elenca la fonte "viva" (Ollama / API del
-  provider) → appare nel menu `/modello`.
+  provider) → appare nel menu `/modello-llm`.
 
 Dove un elenco vivo non è disponibile (offline, senza chiave, SDK assente) si
 **ripiega** su liste curate a mano (`_MODELLI_CLAUDE` e `_MODELLI_CLOUD` in `cli.py`).
@@ -129,7 +129,7 @@ Dettagli per provider (verificati; `data[].id` vale per tutti):
 | **OpenAI** | `https://api.openai.com/v1/models` | `Bearer $EMILIO_CLOUD_KEY` | Non paginato; include embedding/tts/whisper/dall-e/moderation/fine-tuned, **scartati** dal filtro `_NON_CHAT` (restano comunque eventuali snapshot datati). `owned_by` può essere l'org per i fine-tuned. |
 
 > **Caching consigliato (TODO, non ancora implementato):** oggi `_modelli_disponibili`
-> chiama l'API **a ogni apertura del menu** `/modello`. Tutti i provider raccomandano
+> chiama l'API **a ogni apertura del menu** `/modello-llm`. Tutti i provider raccomandano
 > una cache con TTL (es. 1 h per Groq, 1–24 h per OpenAI/OpenRouter) o un fetch a
 > startup, non una chiamata per apertura. Quando servirà, aggiungere una cache
 > in-memory con timestamp dentro `cli.py` (resta stdlib, nessuna nuova dipendenza).
@@ -148,7 +148,7 @@ Dettagli per provider (verificati; `data[].id` vale per tutti):
   `x-api-key` + `anthropic-version: 2023-06-01`; endpoint GA, nessun header beta).
 - Fallback curato: `_MODELLI_CLAUDE = ["claude-haiku-4-5", "claude-sonnet-4-6",
   "claude-opus-4-8"]` (usato quando manca SDK o chiave).
-- Env: `EMILIO_MODEL` (default `claude-opus-4-8`).
+- Env: `EMILIO_CLAUDE_MODEL` (default `claude-opus-4-8`; `EMILIO_MODEL` resta come alias deprecato).
 - **Caveat:** la Models API **non** è disponibile su Amazon Bedrock né Google Vertex
   (lì la lista modelli va presa dalla console/API del provider). Per bassa latenza il
   candidato è `claude-haiku-4-5` (il più veloce, 200K context); `claude-sonnet-4-6` è il
@@ -182,7 +182,7 @@ Dettagli per provider (verificati; `data[].id` vale per tutti):
 - Fetcher per backend → `cli._ollama_modelli` / `_cloud_modelli` / `_claude_modelli`
   (+ filtro `_NON_CHAT`).
 - Menu numerato → `cli._scegli`. Modello attivo → `cli._modello_attuale` (legge
-  `local_llm_model` / `model` / `cloud_llm_model` dalla config).
+  `local_llm_model` / `claude_model` / `cloud_llm_model` dalla config).
 - Scoperta persone → `cli._lista_persone` / `_risolvi_persona`.
 - Attivazione → `agent.set_cervello` / `set_modello` / `set_persona` (tutte e tre
   **ricostruiscono il cervello e azzerano la memoria**, con rollback se la build fallisce).

@@ -59,7 +59,7 @@ Modelli locali provati (tutti scaricati con `ollama pull <nome>`):
 | qwen2.5:7b | Scartato: poco coerente per questo uso. |
 
 Cambiare modello al volo: `EMILIO_LOCAL_MODEL=aya-expanse:8b ./avvia.sh`, oppure
-**dalla console** `/cervello <backend>` + `/modello <nome>` (§6). Per confrontare i
+**dalla console** `/cervello <backend>` + `/modello-llm <nome>` (§6). Per confrontare i
 locali offline: `python tools/prova_carattere.py <modello>` (§6).
 
 ### Cervello online a bassa latenza (TTFT)
@@ -69,7 +69,7 @@ ogni risposta. Due preset (lo streaming è già attivo):
 
 ```bash
 # Claude veloce (Haiku, niente thinking — il default)
-EMILIO_LLM=claude EMILIO_MODEL=claude-haiku-4-5 ANTHROPIC_API_KEY=… ./avvia.sh
+EMILIO_LLM=claude EMILIO_CLAUDE_MODEL=claude-haiku-4-5 ANTHROPIC_API_KEY=… ./avvia.sh
 #   EMILIO_CLAUDE_THINK=adaptive  → ragionamento+effort (più qualità, più lento) su Opus/Sonnet
 
 # Cloud generico (Groq = latenza minima con modelli open)
@@ -235,7 +235,7 @@ Tutte in [`config.py`](../src/emilio/config.py). Le più utili per la messa a pu
 |---|---|---|
 | `EMILIO_LLM` | `mock` | backend cervello: `mock`/`local`/`claude`/`cloud` |
 | `EMILIO_LOCAL_MODEL` | `gemma4:12b` | modello Ollama |
-| `EMILIO_MODEL` | `claude-opus-4-8` | modello Claude (cloud); latenza → `claude-haiku-4-5` |
+| `EMILIO_CLAUDE_MODEL` | `claude-opus-4-8` | modello Claude (ex `EMILIO_MODEL`, ancora valido); latenza → `claude-haiku-4-5` |
 | `EMILIO_CLAUDE_THINK` | (off) | `adaptive` = ragionamento+effort (qualità, più lento); off = TTFT basso, ok con Haiku |
 | `EMILIO_CLOUD_URL` | `…groq.com/openai/v1` | endpoint OpenAI-compat. (Groq/OpenRouter/OpenAI) |
 | `EMILIO_CLOUD_MODEL` | `llama-3.3-70b-versatile` | modello cloud (`llama-3.1-8b-instant` = più rapido) |
@@ -270,7 +270,7 @@ e le **azioni principali**. Cambi le cose base **al volo, senza riavviare**:
 | `<testo>` | parla con Emilio (a testo) |
 | `/conversa [secondi]` | conversazione a **voce** a mani libere |
 | `/cervello [..]` | cambia il **cervello** (mock/local/claude/cloud); **senza arg = menu numerato** |
-| `/modello [nome]` | cambia il **modello LLM**; **senza arg = menu numerato** (Ollama dal vivo, o preset Claude/cloud); o nome diretto |
+| `/modello-llm [nome]` | cambia il **modello dell'LLM/cervello**; **senza arg = menu numerato** (Ollama dal vivo, o preset Claude/cloud); o nome diretto. Alias: `/modello` |
 | `/persona [nome\|file]` | cambia **personalità**; **senza arg = menu numerato** delle persona disponibili; o nome/file diretto |
 | `/voce [nome]` | cambia **voce**; **senza arg = menu numerato**; `/voce test` per provarla |
 | `/think off\|adaptive` | **latenza Claude**: `off` = veloce (Haiku) · `adaptive` = più qualità (Opus/Sonnet) |
@@ -286,7 +286,7 @@ e le **azioni principali**. Cambi le cose base **al volo, senza riavviare**:
 | `/reset` | azzera la memoria (utile se "si incarta") |
 | `/occhi [espressione]` | prova gli occhi |
 
-> `/cervello`, `/modello` e `/persona` **ricostruiscono il cervello** e quindi
+> `/cervello`, `/modello-llm` e `/persona` **ricostruiscono il cervello** e quindi
 > **azzerano la memoria** della conversazione (comportamento voluto: nuova mente,
 > nuovo personaggio).
 

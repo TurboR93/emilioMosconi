@@ -98,7 +98,7 @@ lento — NON è l'API OpenAI `/v1`), per sviluppo offline sul Mac. Env del loca
 `EMILIO_LOCAL_URL` (default `http://localhost:11434`), `EMILIO_LOCAL_MODEL` (default
 `gemma4:12b`), `EMILIO_LOCAL_THINK`, `EMILIO_LOCAL_KEY`, `EMILIO_LOCAL_KEEP_ALIVE`
 (default `30m`: tiene il modello caldo in RAM, niente reload dopo una pausa).
-Si cambia backend/modello **via env** *o a runtime* (`/cervello`, `/modello`),
+Si cambia backend/modello **via env** *o a runtime* (`/cervello`, `/modello-llm`),
 senza toccare la pipeline. Tutti i cervelli espongono `reply(user_text, umore=...)`
 **e** `reply_stream(...)` (generatore di pezzi; il default dell'ABC fa un blocco
 unico; `LocalBrain`/`ClaudeBrain`/`CloudBrain` fanno streaming vero — Ollama

@@ -506,7 +506,7 @@ def build_brain(config, persona: Persona) -> Brain:
     if backend == "claude":
         return ClaudeBrain(
             persona=persona,
-            model=config.model,
+            model=config.claude_model,
             max_tokens=config.max_tokens,
             effort=config.effort,
             think=getattr(config, "claude_think", ""),

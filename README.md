@@ -99,7 +99,7 @@ emilio                     # oppure: python -m emilio
 
 All'avvio la console mostra un **banner** con lo stato e le azioni principali.
 Le cose base si cambiano **al volo, senza riavviare**: `/cervello` (mock/local/
-claude), `/modello <nome>`, `/persona <nome>`, `/conversa` (voce), `/aiuto`.
+claude), `/modello-llm <nome>`, `/persona <nome>`, `/conversa` (voce), `/aiuto`.
 
 ```
 tu> Come va Emilio?
@@ -136,7 +136,7 @@ console stampa il TTFT a ogni risposta, così confronti i provider.
 ```bash
 # A) Claude veloce: Haiku 4.5, niente "thinking" (default off)
 pip install -e ".[llm,voice]"
-export EMILIO_LLM=claude EMILIO_MODEL=claude-haiku-4-5
+export EMILIO_LLM=claude EMILIO_CLAUDE_MODEL=claude-haiku-4-5
 export ANTHROPIC_API_KEY=...
 emilio          # quality mode: EMILIO_CLAUDE_THINK=adaptive (più lento) su Opus/Sonnet
 
@@ -157,7 +157,7 @@ Provider OpenAI-compatibili (imposta `EMILIO_CLOUD_URL`):
 | OpenAI     | `https://api.openai.com/v1`        | `gpt-4o-mini` |
 
 Tutto si cambia anche **a runtime** dalla console, senza riavviare:
-`/cervello claude|cloud`, `/modello <nome>`, `/think off|adaptive`,
+`/cervello claude|cloud`, `/modello-llm <nome>`, `/think off|adaptive`,
 `/provider groq|openrouter|openai`, `/lunghezza <n>`, `/temp <n>`, e `/stato`
 mostra le manopole di latenza attive. Le **chiavi API** restano da env/`.env.local`
 (non si digitano in console).
@@ -298,7 +298,7 @@ Da console: `/censura on|off|stato`. Per ampliare il lessico aggiungi termini in
 | `EMILIO_LOCAL_THINK` | `0` | `1` abilita il ragionamento (lento) dell'LLM locale |
 | `EMILIO_LOCAL_KEEP_ALIVE` | `30m` | quanto Ollama tiene il modello caldo (`-1` = sempre) |
 | `EMILIO_USE_LLM` | `0` | retrocompat: `1` = `claude` se `EMILIO_LLM` non impostato |
-| `EMILIO_MODEL` | `claude-opus-4-8` | modello Claude (cloud); per la latenza: `claude-haiku-4-5` |
+| `EMILIO_CLAUDE_MODEL` | `claude-opus-4-8` | modello Claude (ex `EMILIO_MODEL`, ancora valido come alias); latenza → `claude-haiku-4-5` |
 | `EMILIO_CLAUDE_THINK` | (vuoto = off) | `adaptive` = ragionamento+effort (più qualità, più lento); off = TTFT basso, ok con Haiku |
 | `EMILIO_CLOUD_URL` | `https://api.groq.com/openai/v1` | endpoint OpenAI-compatibile (Groq/OpenRouter/OpenAI) |
 | `EMILIO_CLOUD_MODEL` | `llama-3.3-70b-versatile` | modello del provider cloud (`llama-3.1-8b-instant` = più rapido) |

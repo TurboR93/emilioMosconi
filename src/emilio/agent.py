@@ -240,7 +240,7 @@ class EmilioAgent:
         if b == "local":
             return f"local ({self.config.local_llm_model})"
         if b == "claude":
-            return f"claude ({self.config.model})"
+            return f"claude ({self.config.claude_model})"
         if b == "cloud":
             return f"cloud ({self.config.cloud_llm_model})"
         return b
@@ -267,7 +267,7 @@ class EmilioAgent:
         (local -> modello Ollama, claude -> id Anthropic, cloud -> modello del
         provider OpenAI-compatibile). Memoria azzerata; rollback se fallisce."""
         b = self.backend_cervello
-        campo = {"local": "local_llm_model", "claude": "model",
+        campo = {"local": "local_llm_model", "claude": "claude_model",
                  "cloud": "cloud_llm_model"}.get(b)
         if campo is None:
             raise ValueError(

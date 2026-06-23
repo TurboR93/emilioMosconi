@@ -367,7 +367,7 @@ Dettaglio componenti del corpo in [`HARDWARE.md`](HARDWARE.md).
 |-----------|---------|-------------|
 | `EMILIO_LLM` | (vuoto) | cervello: `mock`/`claude`/`local` (vuoto = `claude` se `EMILIO_USE_LLM=1`, altrimenti `mock`) |
 | `EMILIO_USE_LLM` | `0` | retrocompat: `1` = claude |
-| `EMILIO_MODEL` | `claude-opus-4-8` | modello Claude |
+| `EMILIO_CLAUDE_MODEL` | `claude-opus-4-8` | modello Claude (ex `EMILIO_MODEL`, ancora valido come alias) |
 | `EMILIO_MAX_TOKENS` | `220` | tetto risposta: corta = più rapida e meno crediti voce |
 | `EMILIO_STREAMING` | `1` | pipeline voce in streaming (parla a frasi); `0` = blocco unico |
 | `EMILIO_EFFORT` | `medium` | `low`/`medium`/`high` (Claude) |
