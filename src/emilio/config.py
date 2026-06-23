@@ -26,7 +26,11 @@ class EmilioConfig:
     # (ElevenLabs fattura a carattere). 220 basta per una o due battute.
     max_tokens: int = int(os.environ.get("EMILIO_MAX_TOKENS", "220"))
     effort: str = os.environ.get("EMILIO_EFFORT", "medium")  # low|medium|high
-    # Backend del cervello: mock | claude | local. Se vuoto, EMILIO_USE_LLM=1
+    # "Thinking" di Claude: di default SPENTO (bassa latenza per la voce dal vivo,
+    # e compatibile con Haiku dove 'effort' darebbe errore). "adaptive" lo accende
+    # (con effort) per più qualità su Opus/Sonnet. Vedi ClaudeBrain.
+    claude_think: str = os.environ.get("EMILIO_CLAUDE_THINK", "")  # ""/off | adaptive
+    # Backend del cervello: mock | claude | local | cloud. Se vuoto, EMILIO_USE_LLM=1
     # equivale a "claude" (retrocompatibilità), altrimenti "mock".
     llm_backend: str = os.environ.get("EMILIO_LLM", "")
     # LLM locale via Ollama (API nativa) sul Mac. think=False evita il
@@ -43,11 +47,22 @@ class EmilioConfig:
     # ripetizione (evita che un modello piccolo pappagalli lo stesso moccolo).
     local_llm_temp: float = float(os.environ.get("EMILIO_LOCAL_TEMP", "0.85"))
     local_llm_repeat_penalty: float = float(os.environ.get("EMILIO_LOCAL_REPEAT_PENALTY", "1.3"))
+    # LLM cloud generico via API OpenAI-compatibile (/v1/chat/completions): Groq,
+    # OpenRouter, OpenAI, vLLM... Per la LATENZA MINIMA con modelli open (es. Groq).
+    # Default: Groq. Imposta la chiave del provider in EMILIO_CLOUD_KEY.
+    cloud_llm_url: str = os.environ.get("EMILIO_CLOUD_URL", "https://api.groq.com/openai/v1")
+    cloud_llm_model: str = os.environ.get("EMILIO_CLOUD_MODEL", "llama-3.3-70b-versatile")
+    cloud_llm_key: str = os.environ.get("EMILIO_CLOUD_KEY", "")
+    cloud_llm_temp: float = float(os.environ.get("EMILIO_CLOUD_TEMP", "0.85"))
     # Pipeline del parlato: streaming (Emilio parla la PRIMA frase appena pronta,
     # mentre l'LLM genera ancora -> latenza percepita molto più bassa) oppure la
     # vecchia "a blocco unico" (genera tutto, poi parla). Scelta all'avvio:
     # EMILIO_STREAMING=0 per tornare alla vecchia. Anche da runtime: /streaming.
     streaming: bool = _env_bool("EMILIO_STREAMING", True)
+    # Modalità monitor della console: mostra in tempo reale (💬) il testo che
+    # Emilio sta per dire, frase per frase. ON di default; EMILIO_VERBOSO=0 per
+    # spegnerla all'avvio, oppure /verboso off a runtime.
+    verboso: bool = _env_bool("EMILIO_VERBOSO", True)
 
     # --- Supervisione / censura (BIP sull'audio) -----------------------
     # Attivabile/disattivabile dall'amministratore (anche a runtime).

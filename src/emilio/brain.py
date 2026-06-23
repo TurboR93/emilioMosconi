@@ -36,6 +36,21 @@ def _con_umore(user_text: str, umore: str) -> str:
     return user_text
 
 
+def _claude_extra_kwargs(think: str, effort: str) -> dict:
+    """Parametri opzionali della richiesta Claude in base alla modalità 'think'.
+
+    - "adaptive" -> ragionamento adattivo + effort (più qualità su Opus/Sonnet,
+      ma latenza maggiore);
+    - "" / "off" (default) -> nessun parametro extra: richiesta minima, TTFT più
+      basso, e indispensabile con Haiku (dove 'effort' darebbe 400).
+    Funzione pura (niente SDK): testabile offline.
+    """
+    if (think or "").lower() == "adaptive":
+        return {"thinking": {"type": "adaptive"},
+                "output_config": {"effort": effort}}
+    return {}
+
+
 class Brain(ABC):
     @abstractmethod
     def reply(self, user_text: str, umore: str = "") -> str:
@@ -125,6 +140,7 @@ class ClaudeBrain(Brain):
         model: str = "claude-opus-4-8",
         max_tokens: int = 800,
         effort: str = "medium",
+        think: str = "",
     ):
         try:
             import anthropic  # import pigro: serve solo se usi l'LLM vero
@@ -137,18 +153,24 @@ class ClaudeBrain(Brain):
         self.model = model
         self.max_tokens = max_tokens
         self.effort = effort
+        # think: "" / "off" -> niente ragionamento (TTFT più basso, e indispensabile
+        # con Haiku dove 'effort' darebbe 400); "adaptive" -> ragionamento + effort
+        # (più qualità su Opus/Sonnet, ma latenza maggiore). Per la voce: off.
+        self.think = (think or "").lower()
         self._client = anthropic.Anthropic()
         self._system = self.persona.system_prompt()
         self._messages: list[dict] = []
+
+    def _extra_kwargs(self) -> dict:
+        return _claude_extra_kwargs(self.think, self.effort)
 
     def _generate(self) -> str:
         resp = self._client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
             system=self._system,
-            thinking={"type": "adaptive"},
-            output_config={"effort": self.effort},
             messages=self._messages,
+            **self._extra_kwargs(),
         )
         text = "".join(b.text for b in resp.content if b.type == "text").strip()
         self._messages.append({"role": "assistant", "content": text})
@@ -164,9 +186,8 @@ class ClaudeBrain(Brain):
             model=self.model,
             max_tokens=self.max_tokens,
             system=self._system,
-            thinking={"type": "adaptive"},
-            output_config={"effort": self.effort},
             messages=self._messages,
+            **self._extra_kwargs(),
         ) as stream:
             pezzi: list[str] = []
             for delta in stream.text_stream:
@@ -332,10 +353,131 @@ class LocalBrain(Brain):
         self._messages = []
 
 
+class CloudBrain(Brain):
+    """LLM cloud generico via API **OpenAI-compatibile** (`/v1/chat/completions`).
+
+    Copre i provider che parlano il protocollo OpenAI: **Groq** (latenza minima
+    con modelli open), OpenRouter, OpenAI, vLLM... La leva principale per la
+    latenza è il provider + un modello piccolo/rapido (es. `llama-3.1-8b-instant`
+    su Groq). Stessa interfaccia degli altri cervelli (mock/claude/local), con
+    streaming vero (SSE `data:`), così la voce parte frase per frase.
+    """
+
+    def __init__(
+        self,
+        persona: Persona | None = None,
+        base_url: str = "https://api.groq.com/openai/v1",
+        model: str = "llama-3.3-70b-versatile",
+        max_tokens: int = 800,
+        api_key: str = "",
+        temperature: float = 0.85,
+    ):
+        self.persona = persona or Persona()
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.max_tokens = max_tokens
+        self.api_key = api_key
+        self.temperature = temperature
+        self._system = self.persona.system_prompt()
+        self._messages: list[dict] = []
+
+    def _payload(self, stream: bool) -> dict:
+        return {
+            "model": self.model,
+            "messages": [{"role": "system", "content": self._system}] + self._messages,
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+            "stream": stream,
+        }
+
+    def _headers(self) -> dict:
+        headers = {"content-type": "application/json"}
+        if self.api_key:
+            headers["authorization"] = f"Bearer {self.api_key}"
+        return headers
+
+    def _errore_connessione(self) -> str:
+        return (f"Provider cloud non raggiungibile su {self.base_url}. "
+                f"Controlla EMILIO_CLOUD_URL e la rete.")
+
+    def _controlla(self, resp) -> None:
+        import requests  # import pigro: serve solo col cervello cloud
+        if resp.status_code in (401, 403):
+            raise RuntimeError("Chiave API cloud mancante o non valida "
+                               "(imposta EMILIO_CLOUD_KEY).")
+        if resp.status_code == 404:
+            raise RuntimeError(f"Modello cloud '{self.model}' non trovato sul provider.")
+        try:
+            resp.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            raise RuntimeError(f"Errore dal provider cloud: {e}") from None
+
+    def reply(self, user_text: str, umore: str = "") -> str:
+        import requests  # import pigro: serve solo col cervello cloud
+
+        self._messages.append({"role": "user", "content": _con_umore(user_text, umore)})
+        try:
+            resp = requests.post(self.base_url + "/chat/completions",
+                                 headers=self._headers(),
+                                 json=self._payload(stream=False), timeout=120)
+        except requests.exceptions.ConnectionError:
+            raise RuntimeError(self._errore_connessione()) from None
+        self._controlla(resp)
+        text = resp.json()["choices"][0]["message"]["content"].strip()
+        self._messages.append({"role": "assistant", "content": text})
+        return text
+
+    def reply_stream(self, user_text: str, umore: str = "") -> Iterator[str]:
+        import json
+        import requests  # import pigro: serve solo col cervello cloud
+
+        self._messages.append({"role": "user", "content": _con_umore(user_text, umore)})
+        try:
+            resp = requests.post(self.base_url + "/chat/completions",
+                                 headers=self._headers(),
+                                 json=self._payload(stream=True), stream=True, timeout=120)
+        except requests.exceptions.ConnectionError:
+            raise RuntimeError(self._errore_connessione()) from None
+        pezzi: list[str] = []
+        with resp:
+            self._controlla(resp)
+            for riga in resp.iter_lines():
+                if not riga:
+                    continue
+                linea = riga.decode("utf-8") if isinstance(riga, bytes) else riga
+                if not linea.startswith("data:"):
+                    continue
+                dato = linea[len("data:"):].strip()
+                if dato == "[DONE]":
+                    break
+                try:
+                    obj = json.loads(dato)
+                except json.JSONDecodeError:
+                    continue
+                delta = (obj.get("choices") or [{}])[0].get("delta") or {}
+                pezzo = delta.get("content") or ""
+                if pezzo:
+                    pezzi.append(pezzo)
+                    yield pezzo
+        self._messages.append({"role": "assistant", "content": "".join(pezzi)})
+
+    def revise(self, motivo: str = "") -> str:
+        if self._messages and self._messages[-1]["role"] == "assistant":
+            self._messages.pop()
+        istruzione = "Riformula la tua ultima risposta senza parolacce né bestemmie."
+        if motivo:
+            istruzione += f" (Problema: {motivo}.)"
+        self._messages.append({"role": "user", "content": istruzione})
+        return self.reply(istruzione)
+
+    def reset(self) -> None:
+        self._messages = []
+
+
 def build_brain(config, persona: Persona) -> Brain:
     """Factory: sceglie il cervello in base alla configurazione.
 
-    `EMILIO_LLM` = mock | claude | local. Per retrocompatibilità, se non
+    `EMILIO_LLM` = mock | claude | local | cloud. Per retrocompatibilità, se non
     impostato, `EMILIO_USE_LLM=1` equivale a `claude`, altrimenti `mock`.
     """
     backend = (getattr(config, "llm_backend", "") or
@@ -352,11 +494,21 @@ def build_brain(config, persona: Persona) -> Brain:
             temperature=getattr(config, "local_llm_temp", 0.85),
             repeat_penalty=getattr(config, "local_llm_repeat_penalty", 1.3),
         )
+    if backend == "cloud":
+        return CloudBrain(
+            persona=persona,
+            base_url=getattr(config, "cloud_llm_url", "https://api.groq.com/openai/v1"),
+            model=getattr(config, "cloud_llm_model", "llama-3.3-70b-versatile"),
+            max_tokens=config.max_tokens,
+            api_key=getattr(config, "cloud_llm_key", ""),
+            temperature=getattr(config, "cloud_llm_temp", 0.85),
+        )
     if backend == "claude":
         return ClaudeBrain(
             persona=persona,
             model=config.model,
             max_tokens=config.max_tokens,
             effort=config.effort,
+            think=getattr(config, "claude_think", ""),
         )
     return MockBrain(persona=persona)

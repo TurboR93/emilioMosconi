@@ -32,6 +32,7 @@ dependencies = []  # il core è solo stdlib — è un pregio del design, va pres
 
 [project.optional-dependencies]
 llm = ["anthropic>=0.40"]            # cervello Claude (cloud)
+cloud = ["requests>=2.31"]           # cervello cloud generico OpenAI-compatibile (Groq/OpenRouter/OpenAI)
 voice = ["requests>=2.31"]           # voce ElevenLabs (streaming) + LLM locale via HTTP
 offline-voice = ["pyttsx3>=2.90"]    # TTS offline (ripiego, voce robotica)
 hardware = ["pyserial>=3.5"]         # controllo motori via seriale

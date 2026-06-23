@@ -97,9 +97,15 @@ pip install -e .
 emilio                     # oppure: python -m emilio
 ```
 
+All'avvio la console mostra un **banner** con lo stato e le azioni principali.
+Le cose base si cambiano **al volo, senza riavviare**: `/cervello` (mock/local/
+claude), `/modello <nome>`, `/persona <nome>`, `/conversa` (voce), `/aiuto`.
+
 ```
 tu> Come va Emilio?
 🔊 [Emilio/mock] Eh, ai miei tempi sì che si stava bene...
+tu> /cervello local              # passa al modello locale (Ollama/gemma)
+tu> /persona veterano            # cambia personalità (tools/persona_veterano.json)
 tu> /muovi avanti 2
 🤖 [Emilio muove] vai avanti (x2)
 tu> /di ma che cazzo dici, porco dio
@@ -113,13 +119,48 @@ tu> /di ma che cazzo dici, porco dio
 
 ```bash
 pip install -e ".[llm,voice]"      # Claude + ElevenLabs
-export ANTHROPIC_API_KEY=...        # cervello (cloud, per ora)
+export ANTHROPIC_API_KEY=...        # cervello (cloud)
 export ELEVENLABS_API_KEY=...       # voce
 export ELEVENLABS_VOICE_ID=...      # voce italiana scelta sul tuo account
 export EMILIO_LLM=claude            # cervello cloud (EMILIO_USE_LLM=1 è la via legacy)
 export EMILIO_VOICE=veloce          # bassa latenza (Flash v2.5, streaming)
 emilio
 ```
+
+### Cervello online a BASSA LATENZA
+
+Per il dialogo dal vivo conta il **TTFT** (tempo al primo token). Due strade,
+entrambe in streaming (Emilio parte a parlare appena pronta la prima frase). La
+console stampa il TTFT a ogni risposta, così confronti i provider.
+
+```bash
+# A) Claude veloce: Haiku 4.5, niente "thinking" (default off)
+pip install -e ".[llm,voice]"
+export EMILIO_LLM=claude EMILIO_MODEL=claude-haiku-4-5
+export ANTHROPIC_API_KEY=...
+emilio          # quality mode: EMILIO_CLAUDE_THINK=adaptive (più lento) su Opus/Sonnet
+
+# B) Cloud generico OpenAI-compatibile (latenza minima con modelli open)
+pip install -e ".[cloud,voice]"
+export EMILIO_LLM=cloud
+export EMILIO_CLOUD_MODEL=llama-3.1-8b-instant   # Groq, il più rapido
+export EMILIO_CLOUD_KEY=...                       # chiave del provider
+emilio
+```
+
+Provider OpenAI-compatibili (imposta `EMILIO_CLOUD_URL`):
+
+| Provider   | `EMILIO_CLOUD_URL`                 | modelli d'esempio |
+|------------|------------------------------------|-------------------|
+| Groq (def.)| `https://api.groq.com/openai/v1`   | `llama-3.1-8b-instant`, `llama-3.3-70b-versatile` |
+| OpenRouter | `https://openrouter.ai/api/v1`     | `meta-llama/llama-3.3-70b-instruct` |
+| OpenAI     | `https://api.openai.com/v1`        | `gpt-4o-mini` |
+
+Tutto si cambia anche **a runtime** dalla console, senza riavviare:
+`/cervello claude|cloud`, `/modello <nome>`, `/think off|adaptive`,
+`/provider groq|openrouter|openai`, `/lunghezza <n>`, `/temp <n>`, e `/stato`
+mostra le manopole di latenza attive. Le **chiavi API** restano da env/`.env.local`
+(non si digitano in console).
 
 ## Cervello locale (Ollama, sul Mac)
 
@@ -251,15 +292,20 @@ Da console: `/censura on|off|stato`. Per ampliare il lessico aggiungi termini in
 
 | Variabile | Default | Note |
 |-----------|---------|------|
-| `EMILIO_LLM` | (vuoto) | backend cervello: `mock`/`claude`/`local` |
+| `EMILIO_LLM` | (vuoto) | backend cervello: `mock`/`claude`/`local`/`cloud` |
 | `EMILIO_LOCAL_MODEL` | `gemma4:12b` | modello dell'LLM locale (Ollama) |
 | `EMILIO_LOCAL_URL` | `http://localhost:11434` | endpoint Ollama (API nativa `/api/chat`) |
 | `EMILIO_LOCAL_THINK` | `0` | `1` abilita il ragionamento (lento) dell'LLM locale |
 | `EMILIO_LOCAL_KEEP_ALIVE` | `30m` | quanto Ollama tiene il modello caldo (`-1` = sempre) |
 | `EMILIO_USE_LLM` | `0` | retrocompat: `1` = `claude` se `EMILIO_LLM` non impostato |
-| `EMILIO_MODEL` | `claude-opus-4-8` | modello Claude (cloud) |
+| `EMILIO_MODEL` | `claude-opus-4-8` | modello Claude (cloud); per la latenza: `claude-haiku-4-5` |
+| `EMILIO_CLAUDE_THINK` | (vuoto = off) | `adaptive` = ragionamento+effort (più qualità, più lento); off = TTFT basso, ok con Haiku |
+| `EMILIO_CLOUD_URL` | `https://api.groq.com/openai/v1` | endpoint OpenAI-compatibile (Groq/OpenRouter/OpenAI) |
+| `EMILIO_CLOUD_MODEL` | `llama-3.3-70b-versatile` | modello del provider cloud (`llama-3.1-8b-instant` = più rapido) |
+| `EMILIO_CLOUD_KEY` | (vuoto) | chiave API del provider cloud |
 | `EMILIO_MAX_TOKENS` | `220` | tetto risposta: corta = più rapida e meno crediti voce |
 | `EMILIO_STREAMING` | `1` | pipeline voce in streaming (parla a frasi); `0` = blocco unico |
+| `EMILIO_VERBOSO` | `1` | monitor console: mostra in tempo reale (💬) il testo che sta per dire; `0` = off |
 | `EMILIO_MODERATION` | `1` | supervisione (BIP) on/off all'avvio — disattivabile da admin |
 | `EMILIO_MODERATE_INPUT` | `1` | rileva insulti/provocazioni anche nell'input |
 | `EMILIO_BIP_MARKER` | `[BIP]` | come appare il bip in console/log |
@@ -310,6 +356,7 @@ emilioMosconi/
 ├── CLAUDE.md               # guida per le sessioni di sviluppo con Claude Code
 ├── docs/                   # documentazione (fuori dal pacchetto)
 │   ├── PROGETTO.md         # architettura esaustiva, voce, supervisore, roadmap
+│   ├── MESSA_A_PUNTO.md    # come correggere carattere e dizionario (tuning)
 │   └── HARDWARE.md         # componenti da comprare (Pi, mic, casse, motori)
 ├── src/
 │   └── emilio/             # il pacchetto (src-layout)

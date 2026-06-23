@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import os
 import re
 import time
 
@@ -42,6 +43,40 @@ _EMOZIONI_LLM = {"neutro", "felice", "arrabbiato", "sorpreso", "triste", "pensa"
 
 _TERMINATORI = ".!?…"
 _CHIUSURE = "\"'»)]"
+
+
+# Scorciatoie per i provider cloud OpenAI-compatibili (vedi /provider).
+_PROVIDER_URLS = {
+    "groq": "https://api.groq.com/openai/v1",
+    "openrouter": "https://openrouter.ai/api/v1",
+    "openai": "https://api.openai.com/v1",
+}
+
+
+def _nome_provider(url: str) -> str:
+    """Nome breve di un provider cloud dal suo URL (per la console)."""
+    for nome, u in _PROVIDER_URLS.items():
+        if (url or "").rstrip("/") == u:
+            return nome
+    # ripiego: l'host dell'URL (senza schema)
+    resto = (url or "").split("://", 1)[-1]
+    return resto.split("/", 1)[0] or url
+
+
+def _nome_persona(path: str | None) -> str:
+    """Nome breve di una persona dal percorso del file (None -> 'default').
+
+    Es. 'tools/persona_veterano.json' -> 'veterano'. Serve per mostrare in
+    console quale personalità è attiva senza stampare un percorso intero.
+    """
+    if not path:
+        return "default"
+    base = os.path.basename(path)
+    if base.endswith(".json"):
+        base = base[:-5]
+    if base.startswith("persona_"):
+        base = base[len("persona_"):]
+    return base or "default"
 
 
 def _spezza_frasi(buf: str) -> tuple[list[str], str]:
@@ -93,20 +128,28 @@ def _fondi_metriche(ms: list) -> "SpeechMetrics | None":
 
 
 def _estrai_emozione(testo: str) -> tuple[str | None, str]:
-    """Stacca un tag '[emozione]' iniziale SOLO se è un'emozione nota.
+    """Stacca il tag '[...]' iniziale dello stato d'animo (non si pronuncia).
 
-    Tollera '[molto arrabbiato]', '[arrabbiato!]', '"[arrabbiato]"' ecc. Se fra
-    le parentesi non c'è un'emozione valida (es. '[Bologna]', '[ndr]'), lascia
-    il testo INTATTO: meglio non mangiare contenuto legittimo.
+    - emozione NOTA ('[arrabbiato]', '[molto arrabbiato]', '"[Arrabbiato]"') ->
+      la ritorna e la stacca;
+    - tag d'animo INVENTATO dal modello, in minuscolo e di 1-3 parole
+      ('[scettico]', '[brontolo bonario]') -> lo stacca comunque (emozione neutra),
+      così non finisce PRONUNCIATO;
+    - contenuto legittimo fra parentesi (maiuscole/cifre/punteggiatura, es.
+      '[Bologna]', '[ndr]', '[3-1]') -> lascia il testo INTATTO.
     """
     m = _TAG_EMOZIONE.match(testo)
     if not m:
         return None, testo
-    parole = re.findall(r"[a-zàèéìòù]+", m.group(1).lower())
+    contenuto = m.group(1).strip()
+    parole = re.findall(r"[a-zàèéìòùáíóúü]+", contenuto.lower())
     emo = parole[-1] if parole else ""
     if emo in _EMOZIONI_LLM:
         return emo, testo[m.end():]
-    return None, testo
+    # tag d'animo inventato: solo lettere minuscole/spazi, al massimo 3 parole
+    if parole and len(parole) <= 3 and re.fullmatch(r"[a-zàèéìòùáíóúü ]+", contenuto):
+        return None, testo[m.end():]
+    return None, testo          # sembra contenuto vero ([Bologna], [3-1]): non toccare
 
 
 @dataclass
@@ -137,6 +180,11 @@ class EmilioAgent:
     ):
         self.config = config or EmilioConfig()
         self.persona = persona or Persona.load(self.config.persona_path)
+        # Etichetta breve della personalità attiva (per la console): 'default'
+        # oppure il nome del file caricato via EMILIO_PERSONA / comando /persona.
+        self.persona_origine = (
+            "personalizzata" if persona is not None
+            else _nome_persona(self.config.persona_path))
         self.brain = brain or build_brain(self.config, self.persona)
         self.moderator = moderator or Moderator(
             censor_style=self.config.censor_style,
@@ -151,6 +199,11 @@ class EmilioAgent:
         # Pipeline del parlato: streaming (parla frase per frase) o a blocco
         # unico (vecchia). Scelta all'avvio (EMILIO_STREAMING) e da runtime.
         self.streaming = getattr(self.config, "streaming", True)
+        # Modalità monitor della console: se True il terminale mostra, in tempo
+        # reale, il testo che Emilio sta per dire (vedi CLI /verboso). ON di
+        # default (EMILIO_VERBOSO). Flag di presentazione: la usa la console,
+        # non il nucleo.
+        self.verboso = getattr(self.config, "verboso", True)
         # Scalda lo STT in sottofondo: così la prima trascrizione non paga il
         # caricamento del modello (solo coi backend reali, mai nei test/mock).
         if getattr(self.config, "stt_backend", "mock").lower() in ("whisper", "reale", "mlx"):
@@ -172,6 +225,129 @@ class EmilioAgent:
     @property
     def moderazione_attiva(self) -> bool:
         return self.moderator.enabled
+
+    # -- controllo cervello (backend e modello) ---------------------------
+
+    @property
+    def backend_cervello(self) -> str:
+        """Backend LLM attuale: 'mock', 'local' (Ollama), 'claude' o 'cloud'."""
+        return (self.config.llm_backend
+                or ("claude" if self.config.use_real_llm else "mock")).lower()
+
+    def descrizione_cervello(self) -> str:
+        """Etichetta leggibile del cervello attivo, col modello fra parentesi."""
+        b = self.backend_cervello
+        if b == "local":
+            return f"local ({self.config.local_llm_model})"
+        if b == "claude":
+            return f"claude ({self.config.model})"
+        if b == "cloud":
+            return f"cloud ({self.config.cloud_llm_model})"
+        return b
+
+    def set_cervello(self, backend: str) -> str:
+        """Cambia il backend LLM a runtime (mock|local|claude|cloud) e ricostruisce
+        il cervello. La memoria della conversazione viene azzerata. Se la
+        costruzione fallisce (es. SDK/chiave mancante) lo stato resta invariato."""
+        backend = backend.lower().strip()
+        if backend not in ("mock", "local", "claude", "cloud"):
+            raise ValueError(
+                f"Cervello sconosciuto: '{backend}'. Usa: mock, local, claude o cloud.")
+        prec = self.config.llm_backend
+        self.config.llm_backend = backend
+        try:
+            self.brain = build_brain(self.config, self.persona)
+        except Exception:
+            self.config.llm_backend = prec        # rollback: niente stato a metà
+            raise
+        return self.descrizione_cervello()
+
+    def set_modello(self, nome: str) -> str:
+        """Cambia il modello del backend attivo e ricostruisce il cervello
+        (local -> modello Ollama, claude -> id Anthropic, cloud -> modello del
+        provider OpenAI-compatibile). Memoria azzerata; rollback se fallisce."""
+        b = self.backend_cervello
+        campo = {"local": "local_llm_model", "claude": "model",
+                 "cloud": "cloud_llm_model"}.get(b)
+        if campo is None:
+            raise ValueError(
+                "Il modello si cambia solo col cervello 'local', 'claude' o 'cloud'. "
+                "Prima fai:  /cervello local")
+        prec = getattr(self.config, campo)
+        setattr(self.config, campo, nome)
+        try:
+            self.brain = build_brain(self.config, self.persona)
+        except Exception:
+            setattr(self.config, campo, prec)     # rollback
+            raise
+        return self.descrizione_cervello()
+
+    # -- manopole di latenza/campionamento (a caldo, SENZA azzerare la memoria) --
+    # Aggiornano la config E, dove possibile, l'oggetto cervello già vivo: così
+    # cambiano al volo senza ricostruire il cervello (la conversazione resta).
+
+    def set_think(self, modo: str) -> str:
+        """Claude: 'adaptive' = ragionamento+effort (più qualità, più lento) /
+        'off' = niente (TTFT basso, indispensabile con Haiku)."""
+        m = (modo or "").lower().strip()
+        if m in ("adaptive", "on", "si", "sì", "1"):
+            valore = "adaptive"
+        elif m in ("off", "no", "0", ""):
+            valore = ""
+        else:
+            raise ValueError("Uso: /think off|adaptive")
+        self.config.claude_think = valore
+        if self.backend_cervello == "claude" and hasattr(self.brain, "think"):
+            self.brain.think = valore
+        return valore or "off"
+
+    def set_max_tokens(self, n: int) -> int:
+        """Lunghezza massima della risposta (corta = più rapida)."""
+        if n <= 0:
+            raise ValueError("La lunghezza dev'essere un numero > 0.")
+        self.config.max_tokens = n
+        if hasattr(self.brain, "max_tokens"):
+            self.brain.max_tokens = n
+        return n
+
+    def set_temperatura(self, x: float) -> float:
+        """Varietà/creatività del campionamento (per 'local' o 'cloud'; Claude
+        non usa la temperature)."""
+        b = self.backend_cervello
+        if b == "local":
+            self.config.local_llm_temp = x
+        elif b == "cloud":
+            self.config.cloud_llm_temp = x
+        else:
+            raise ValueError(
+                "La temperatura vale solo col cervello 'local' o 'cloud' "
+                "(Claude non la usa).")
+        if hasattr(self.brain, "temperature"):
+            self.brain.temperature = x
+        return x
+
+    def set_provider(self, nome_o_url: str) -> str:
+        """Endpoint del cervello cloud: scorciatoie groq|openrouter|openai oppure
+        un URL OpenAI-compatibile completo."""
+        url = _PROVIDER_URLS.get(nome_o_url.lower().strip(), nome_o_url.strip())
+        self.config.cloud_llm_url = url
+        if self.backend_cervello == "cloud" and hasattr(self.brain, "base_url"):
+            self.brain.base_url = url.rstrip("/")
+        return url
+
+    # -- controllo persona -------------------------------------------------
+
+    @property
+    def persona_nome(self) -> str:
+        """Nome breve della personalità attiva (es. 'default', 'veterano')."""
+        return self.persona_origine
+
+    def set_persona(self, persona: Persona, origine: str = "personalizzata") -> None:
+        """Carica un'altra personalità a runtime e ricostruisce il cervello col
+        nuovo system prompt. La memoria della conversazione viene azzerata."""
+        self.persona = persona
+        self.persona_origine = origine
+        self.brain = build_brain(self.config, self.persona)
 
     # -- controllo voci ----------------------------------------------------
 
@@ -250,30 +426,41 @@ class EmilioAgent:
             return tag
         return "neutro"
 
-    def parla(self, input_utente: str) -> RisultatoParlato:
-        """Pipeline completa: genera e fa parlare Emilio (col bip dove serve)."""
+    def parla(self, input_utente: str, su_frase=None) -> RisultatoParlato:
+        """Pipeline completa: genera e fa parlare Emilio (col bip dove serve).
+
+        `su_frase`, se passato, viene chiamato col testo (già bippato) PRIMA di
+        pronunciarlo — per la modalità monitor della console (vedi /verboso)."""
         ris = self.genera(input_utente)
+        if su_frase and ris.testo_detto.strip():
+            su_frase(ris.testo_detto)
         # Si pronuncia il testo GREZZO: la voce sintetizza la frase naturale e
         # copre con un bip solo gli intervalli sporchi (span_censura).
         ris.voce = self._pronuncia(ris.testo_grezzo, ris.span_censura, ris.emozione)
         return ris
 
-    def rispondi(self, input_utente: str) -> RisultatoParlato:
-        """Parla scegliendo la pipeline attiva: streaming o a blocco unico."""
+    def rispondi(self, input_utente: str, su_frase=None) -> RisultatoParlato:
+        """Parla scegliendo la pipeline attiva: streaming o a blocco unico.
+
+        `su_frase` (callback opzionale) riceve ogni frase, già bippata, appena
+        prima che venga pronunciata: serve al terminale per mostrare in tempo
+        reale ciò che Emilio sta per dire."""
         if self.streaming:
-            return self.parla_streaming(input_utente)
-        return self.parla(input_utente)
+            return self.parla_streaming(input_utente, su_frase=su_frase)
+        return self.parla(input_utente, su_frase=su_frase)
 
     def set_streaming(self, attivo: bool) -> None:
         """Attiva/disattiva la pipeline streaming a runtime (admin)."""
         self.streaming = attivo
 
-    def parla_streaming(self, input_utente: str) -> RisultatoParlato:
+    def parla_streaming(self, input_utente: str, su_frase=None) -> RisultatoParlato:
         """Come `parla`, ma pronuncia FRASE PER FRASE mentre l'LLM genera: la
         prima battuta parte appena pronta, senza aspettare tutta la risposta.
 
         Ogni frase passa dal supervisore singolarmente (stessa censura via BIP).
         Il tag di stato d'animo iniziale viene staccato prima di parlare.
+        `su_frase` (callback opzionale) riceve ogni frase BIPPATA appena prima di
+        pronunciarla (modalità monitor della console, /verboso).
         """
         try:
             self.occhi.imposta("pensa")
@@ -302,8 +489,11 @@ class EmilioAgent:
                 return
             report = self.moderator.review(frase)
             span = self.moderator.span_censura(report)
+            detto = self.moderator.testo_con_bip(frase, report)
             if report.has_profanity or report.has_blasphemy:
                 arrabbiato = True
+            if su_frase:                      # monitor: mostra cosa STA per dire
+                su_frase(detto)
             try:
                 self.occhi.imposta("arrabbiato" if arrabbiato else "parla")
             except Exception:
@@ -317,7 +507,7 @@ class EmilioAgent:
             prev = " ".join(frasi_grezze)
             metriche.append(self.voci.say(frase, bleep_spans=span, previous_text=prev))
             frasi_grezze.append(frase)
-            frasi_dette.append(self.moderator.testo_con_bip(frase, report))
+            frasi_dette.append(detto)
             span_tot.extend(span)
 
         for pezzo in self.brain.reply_stream(input_utente, umore=umore):

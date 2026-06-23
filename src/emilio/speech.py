@@ -19,6 +19,7 @@ modulo si limita a pronunciarlo.
 
 from __future__ import annotations
 
+import gc
 import os
 import shutil
 import subprocess
@@ -132,14 +133,30 @@ class MockSpeaker(Speaker):
 
 
 class Pyttsx3Speaker(Speaker):
+    """TTS offline. Engine USA-E-GETTA per ogni battuta.
+
+    Su macOS pyttsx3 (driver `nsss`) ha un bug noto: riusando lo STESSO engine,
+    `runAndWait()` parla solo la PRIMA volta e poi torna subito senza dire nulla
+    ("Emilio si incastra"). pyttsx3 però cachea l'engine per driver finché ne
+    esiste un riferimento vivo, quindi NON teniamo `self._engine`: per ogni
+    battuta creiamo un engine nuovo, lo usiamo e lo liberiamo (`gc.collect()`),
+    così il successivo `init()` ne restituisce uno fresco che parla davvero.
+    """
+
     def __init__(self, profilo: str = "offline", language: str = "it", voce: str = "",
                  bip_dir: str | None = None):
         import pyttsx3
         self.profilo = profilo
         self.bip_dir = bip_dir
-        self._engine = pyttsx3.init()
-        voci = self._engine.getProperty("voices")
-        lang = language.lower()
+        self._voce = voce
+        self._lang = language.lower()
+        # Risolve una volta l'id della voce, poi libera l'engine temporaneo.
+        eng = pyttsx3.init()
+        self._voice_id = self._scegli_voce(eng.getProperty("voices"))
+        self._libera(eng)
+
+    def _scegli_voce(self, voci) -> str | None:
+        lang = self._lang
 
         def _blob(v):
             return f"{v.id} {getattr(v, 'name', '')}".lower()
@@ -148,20 +165,34 @@ class Pyttsx3Speaker(Speaker):
             b = _blob(v)
             return f"{lang}-{lang}" in b or f"{lang}_{lang}" in b or "ital" in b
 
-        scelta = None
         # 1) voce richiesta esplicitamente (per nome o id, es. "Luca")
-        if voce:
-            scelta = next((v.id for v in voci if voce.lower() in _blob(v)), None)
-        # 2) altrimenti la prima voce della lingua NON "eloquence": quelle
-        #    eloquence (Eddy, Grandpa, ...) sono robotiche e incomprensibili.
-        if scelta is None:
-            scelta = next((v.id for v in voci
-                           if _it(v) and "eloquence" not in v.id.lower()), None)
+        if self._voce:
+            scelta = next((v.id for v in voci if self._voce.lower() in _blob(v)), None)
+            if scelta:
+                return scelta
+        # 2) la prima voce della lingua NON "eloquence" (robotiche/incomprensibili)
+        scelta = next((v.id for v in voci
+                       if _it(v) and "eloquence" not in v.id.lower()), None)
         # 3) estrema ratio: qualunque voce della lingua
-        if scelta is None:
-            scelta = next((v.id for v in voci if _it(v)), None)
-        if scelta:
-            self._engine.setProperty("voice", scelta)
+        return scelta or next((v.id for v in voci if _it(v)), None)
+
+    def _nuovo_engine(self):
+        """Un engine pyttsx3 nuovo (con la voce scelta) — usa-e-getta."""
+        import pyttsx3
+        eng = pyttsx3.init()
+        if self._voice_id:
+            eng.setProperty("voice", self._voice_id)
+        return eng
+
+    @staticmethod
+    def _libera(eng) -> None:
+        """Chiude e libera l'engine: il prossimo init() ne crea uno nuovo
+        (altrimenti pyttsx3 ridà quello cachato → bug 'parla una volta sola')."""
+        try:
+            eng.stop()
+        except Exception:
+            pass
+        gc.collect()
 
     def say(self, text: str, bleep_spans: list[tuple[int, int]] | None = None,
             previous_text: str = "", next_text: str = "") -> SpeechMetrics:
@@ -172,8 +203,10 @@ class Pyttsx3Speaker(Speaker):
         # Ripiego: se lo splice del bip non è possibile, la parolaccia NON viene
         # comunque pronunciata (sostituita da "bip" parlato).
         da_dire = audio_bip.testo_sicuro(text, bleep_spans) if bleep_spans else text
-        self._engine.say(da_dire)
-        self._engine.runAndWait()
+        eng = self._nuovo_engine()
+        eng.say(da_dire)
+        eng.runAndWait()
+        self._libera(eng)
         return SpeechMetrics("pyttsx3", self.profilo, None, time.perf_counter() - t0, len(text))
 
     def _say_con_bip(self, text: str, spans: list[tuple[int, int]]) -> bool:
@@ -191,8 +224,10 @@ class Pyttsx3Speaker(Speaker):
         tmp = tempfile.mkdtemp(prefix="emilio_bip_")
         try:
             voce = os.path.join(tmp, "voce.wav")
-            self._engine.save_to_file(text, voce)   # un'unica sintesi
-            self._engine.runAndWait()
+            eng = self._nuovo_engine()              # engine usa-e-getta
+            eng.save_to_file(text, voce)            # un'unica sintesi
+            eng.runAndWait()
+            self._libera(eng)
             if not (os.path.exists(voce) and os.path.getsize(voce) > 0):
                 return False
             dur = audio_bip._durata(voce)

@@ -17,6 +17,18 @@ class TestTagEmozione(unittest.TestCase):
     def test_senza_tag(self):
         self.assertEqual(_estrai_emozione("nessun tag qui"), (None, "nessun tag qui"))
 
+    def test_tag_inventato_staccato(self):
+        # tag d'animo non canonico (il modello a volte li inventa): va STACCATO
+        # comunque, così non viene pronunciato (emozione -> neutro/None).
+        self.assertEqual(_estrai_emozione("[scettico] eh, vabbè"), (None, "eh, vabbè"))
+        self.assertEqual(_estrai_emozione("[brontolo bonario] ciao"), (None, "ciao"))
+
+    def test_contenuto_vero_preservato(self):
+        # contenuto legittimo fra parentesi (maiuscole/cifre): NON va toccato
+        self.assertEqual(_estrai_emozione("[Bologna] che squadra"),
+                         (None, "[Bologna] che squadra"))
+        self.assertEqual(_estrai_emozione("[3-1] partitone"), (None, "[3-1] partitone"))
+
 
 class TestReazione(unittest.TestCase):
     def _ag(self):

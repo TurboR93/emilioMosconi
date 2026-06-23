@@ -1,8 +1,11 @@
 # CLAUDE.md
 
 Guida per le sessioni di sviluppo con Claude Code su **Emilio**. Leggi anche
-[`README.md`](README.md) (uso) e [`docs/PROGETTO.md`](docs/PROGETTO.md)
-(architettura esaustiva).
+[`README.md`](README.md) (uso), [`docs/PROGETTO.md`](docs/PROGETTO.md)
+(architettura esaustiva), [`docs/MESSA_A_PUNTO.md`](docs/MESSA_A_PUNTO.md)
+(come correggere carattere e dizionario: system prompt, lessico, manopole, test)
+e [`docs/PERSONE_E_MODELLI.md`](docs/PERSONE_E_MODELLI.md) (menu auto-aggiornante
+di persone e modelli: come aggiungerne, dove estendere).
 
 ## Cos'è
 
@@ -88,22 +91,34 @@ funzionano **solo dopo `pip install -e .`** (non basta stare nella cartella).
 
 ## Cervello: backend selezionabile
 
-`EMILIO_LLM` = `mock` | `claude` | `local`. Il **`LocalBrain`** ([brain.py](src/emilio/brain.py))
-usa l'**API nativa di Ollama** (`localhost:11434/api/chat`, campo `think:false`
-per disattivare il ragionamento lento — NON è l'API OpenAI `/v1`), per sviluppo
-offline sul Mac. Si passa a Claude (cloud) o al locale **solo via env**, senza
-toccare la pipeline. Env del locale: `EMILIO_LOCAL_URL` (default
-`http://localhost:11434`), `EMILIO_LOCAL_MODEL` (default `gemma4:12b`),
-`EMILIO_LOCAL_THINK`, `EMILIO_LOCAL_KEY`, `EMILIO_LOCAL_KEEP_ALIVE` (default `30m`:
-tiene il modello caldo in RAM, niente reload dopo una pausa). Tutti i cervelli
-espongono `reply(user_text, umore=...)` **e** `reply_stream(...)` (generatore di
-pezzi; il default dell'ABC fa un blocco unico, `LocalBrain`/`ClaudeBrain` fanno
-streaming vero — Ollama `stream:true`, Anthropic `messages.stream`). Con
+`EMILIO_LLM` = `mock` | `claude` | `local` | `cloud`. Il **`LocalBrain`**
+([brain.py](src/emilio/brain.py)) usa l'**API nativa di Ollama**
+(`localhost:11434/api/chat`, campo `think:false` per disattivare il ragionamento
+lento — NON è l'API OpenAI `/v1`), per sviluppo offline sul Mac. Env del locale:
+`EMILIO_LOCAL_URL` (default `http://localhost:11434`), `EMILIO_LOCAL_MODEL` (default
+`gemma4:12b`), `EMILIO_LOCAL_THINK`, `EMILIO_LOCAL_KEY`, `EMILIO_LOCAL_KEEP_ALIVE`
+(default `30m`: tiene il modello caldo in RAM, niente reload dopo una pausa).
+Si cambia backend/modello **via env** *o a runtime* (`/cervello`, `/modello`),
+senza toccare la pipeline. Tutti i cervelli espongono `reply(user_text, umore=...)`
+**e** `reply_stream(...)` (generatore di pezzi; il default dell'ABC fa un blocco
+unico; `LocalBrain`/`ClaudeBrain`/`CloudBrain` fanno streaming vero — Ollama
+`stream:true`, Anthropic `messages.stream`, cloud SSE `data:`). Con
 `umore="arrabbiato"` (provocazione rilevata) il prompt utente riceve una spinta a
-rispondere infuriato. **Velocità**: la leva principale è un modello più piccolo
-(es. `gemma3:4b`, 2-4× più rapido del 12B) + risposte brevi (`EMILIO_MAX_TOKENS`,
-default 220). **Onboard sul Pi si userà il cloud** (`claude` + ElevenLabs): il
-Raspberry non regge l'inferenza locale.
+rispondere infuriato.
+
+**Cervello online a bassa latenza** (per la voce dal vivo conta il TTFT; lo
+streaming è già attivo): il **`ClaudeBrain`** è tarato per la latenza — di default
+NON manda `thinking`/`output_config.effort` (`EMILIO_CLAUDE_THINK` vuoto/`off`),
+così è rapido e **compatibile con Haiku** (`claude-haiku-4-5`), dove `effort`
+darebbe 400; `EMILIO_CLAUDE_THINK=adaptive` riaccende ragionamento+effort (più
+qualità, più lento) su Opus/Sonnet. Il **`CloudBrain`** è un backend cloud generico
+**OpenAI-compatibile** (`/v1/chat/completions`) per **Groq/OpenRouter/OpenAI** —
+latenza minima con modelli open; env `EMILIO_CLOUD_URL` (default Groq),
+`EMILIO_CLOUD_MODEL` (default `llama-3.3-70b-versatile`; `llama-3.1-8b-instant` =
+più rapido), `EMILIO_CLOUD_KEY`, `EMILIO_CLOUD_TEMP`. **Velocità in locale**: la
+leva principale è un modello più piccolo (es. `gemma3:4b`) + risposte brevi
+(`EMILIO_MAX_TOKENS`, default 220). **Onboard sul Pi si userà il cloud** (`claude`
+o `cloud` + ElevenLabs): il Raspberry non regge l'inferenza locale.
 
 ## Occhi (importantissimi)
 
