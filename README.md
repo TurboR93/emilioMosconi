@@ -105,7 +105,7 @@ claude), `/modello-llm <nome>`, `/persona <nome>`, `/conversa` (voce), `/aiuto`.
 tu> Come va Emilio?
 🔊 [Emilio/mock] Eh, ai miei tempi sì che si stava bene...
 tu> /cervello local              # passa al modello locale (Ollama/gemma)
-tu> /persona veterano            # cambia personalità (tools/persona_veterano.json)
+tu> /persona germano             # cambia personalità (tools/persona_germano.json)
 tu> /muovi avanti 2
 🤖 [Emilio muove] vai avanti (x2)
 tu> /di ma che cazzo dici, porco dio

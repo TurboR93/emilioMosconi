@@ -126,6 +126,19 @@ def default_profiles(config) -> list[VoiceProfile]:
             streaming=True, optimize_streaming_latency=2,
             stability=0.25, similarity_boost=0.8, style=0.6,
         ),
+        # Voce dedicata alla persona "germano" (vecchio trevigiano incazzato,
+        # acido e arguto alla Germano Mosconi): voice_id FISSO (è la sua voce
+        # firma, clonata da audio veneto reale, non eredita da ELEVENLABS_VOICE_ID).
+        # Multilingual v2 per il realismo italiano, stabilità bassa + style alto per
+        # il piglio espressivo/sboccato, un filo più lenta per dargli gravità da
+        # vecchio. La persona la attiva da sola (campo "voce").
+        VoiceProfile(
+            "germano", "elevenlabs",
+            "Vecchio trevigiano incazzato, acido e sboccato (Multilingual v2, espressivo)",
+            voice_id="uW2tUtSymsTeJDUJjn8E", model="eleven_multilingual_v2",
+            streaming=True, optimize_streaming_latency=2,
+            stability=0.3, similarity_boost=0.85, style=0.5, speed=0.97,
+        ),
     ]
 
 

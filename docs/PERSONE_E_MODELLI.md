@@ -46,7 +46,7 @@ sempre inserito in testa anche se non compare nella fonte live: lo fa
 
 - `cli._lista_persone()` fa il **glob** di `tools/persona_*.json` **e** di
   `persona_*.json` nella cwd, ricava il nome breve con `agent._nome_persona()`
-  (`tools/persona_veterano.json` → `veterano`) e antepone sempre `"default"` (la
+  (`tools/persona_germano.json` → `germano`) e antepone sempre `"default"` (la
   persona di serie, senza file).
 - `cli._risolvi_persona(arg)` mappa il nome al file provando, in ordine, questi
   candidati: `tools/persona_<nome>.json`, `persona_<nome>.json`, `<nome>.json`,
@@ -55,14 +55,19 @@ sempre inserito in testa anche se non compare nella fonte live: lo fa
   candidato esiste, solleva `ValueError` con l'elenco dei nomi disponibili.
 - Il caricamento vero è `Persona.from_json(path)` (`persona.py`, fa `cls(**data)`);
   l'agente la attiva con `agent.set_persona(persona, origine)`, che **ricostruisce il
-  cervello** col nuovo system prompt e **azzera la memoria**.
+  cervello** col nuovo system prompt, **azzera la memoria** e — se la persona
+  dichiara una `voce` nota — **attiva quella voce** (`_applica_voce_persona`): un
+  personaggio si porta dietro la sua voce. All'avvio la voce della persona parte da
+  sola, salvo un pin esplicito `EMILIO_VOICE` che ha sempre la precedenza. Se la
+  `voce` dichiarata non è in catalogo, l'attivazione viene ignorata (la voce resta
+  quella corrente).
 
 ### Chiavi del JSON
 
 Le chiavi sono **esattamente** i campi del dataclass `Persona` (`persona.py`):
 `from_json` fa `cls(**data)`, quindi una chiave non prevista solleva `TypeError`.
 Tutti i campi hanno un default: nel JSON metti **solo** quelli che vuoi sovrascrivere.
-Esempi: `tools/persona_veterano.json`, `tools/persona_machiavelli.json`.
+Esempi: `tools/persona_germano.json`, `tools/persona_machiavelli.json`.
 
 | Chiave | Tipo | Significato |
 |---|---|---|
@@ -73,6 +78,7 @@ Esempi: `tools/persona_veterano.json`, `tools/persona_machiavelli.json`.
 | `stile` | str | Come parla (registro, intercalari, lunghezza frasi). |
 | `interessi` | list[str] | Temi su cui si accende. |
 | `regole` | list[str] | Vincoli forti (resta nel personaggio, brevità, come/quando si infuria, ecc.). |
+| `voce` | str | Nome di un profilo voce (vedi `speech.default_profiles`, es. `germano`, `realistico`, `offline`): selezionando la persona, l'agente attiva **da sola** quella voce. Vuoto = lascia la voce attiva com'è (la persona di serie usa la voce standard configurata). NON entra nel system prompt: è metadato, non carattere. |
 
 > Il tag di stato d'animo iniziale (`[neutro|felice|arrabbiato|sorpreso|pensa|triste]`)
 > è **già imposto** dal `system_prompt()` di base, non dal JSON: non serve ripeterlo
@@ -82,6 +88,28 @@ Esempi: `tools/persona_veterano.json`, `tools/persona_machiavelli.json`.
 > prompt. La persona può infilare parolacce/bestemmie *in mezzo* alle frasi quando è
 > provocata; ci pensa il moderatore a coprirle. Per la taratura fine di carattere e
 > lessico vedi [`docs/MESSA_A_PUNTO.md`](MESSA_A_PUNTO.md).
+
+### Persone esistenti e relative voci
+
+Ogni personaggio dichiara la **sua voce** (campo `voce`): selezionando la persona,
+l'agente attiva da solo quel profilo (vedi `speech.default_profiles`). Quello che c'è
+oggi nel repo:
+
+| Persona | Chi è | Voce | Tipo di voce |
+|---|---|---|---|
+| `default` (Emilio) | Il vecchio brontolone veneto di serie: bonario e ironico (calcio d'una volta, cucina di casa, politica da bar); esplode solo se provocato. | *standard/locale configurata* (`voce` vuoto) | **Locale offline** (`offline`/pyttsx3 in deploy; `mock` in sviluppo). Niente rete né chiavi. |
+| `germano` | Vecchio **trevigiano incazzato** della Marca, **acido e arguto alla Germano Mosconi**: sboccato e permaloso, si lamenta del mondo moderno (computer, burocrazia/SPID, vicini, giovani, osteria). Parla **trevigiano schietto e bestemmioso**, con gli **accenti** scritti giusti perché la voce li legga bene. Poca/niente guerra. | `germano` | **ElevenLabs DEDICATA** — `voice_id` proprio `uW2tUtSymsTeJDUJjn8E` (clonata da audio veneto reale), Multilingual v2, stabilità bassa + style alto, un filo più lenta (gravità da vecchio). È la sua firma vocale. |
+| `machiavelli` | **Niccolò Machiavelli**: realismo politico fiorentino, aforismi taglienti e esempi storici, moccoli toscani quando lo si contraddice. | `realistico` | **ElevenLabs** (voce configurata `ELEVENLABS_VOICE_ID`, Multilingual v2, posata). Tono serio da segretario. *Provvisoria*: per una voce tutta sua, vedi sotto. |
+| `bucolica` (WIP) | Vecchio **contadino veneto** poeta-filosofo: dialetto stretto con accenti, immagini della terra e delle stagioni; in via di rifinitura. | `espressivo` | **ElevenLabs** (voce configurata `ELEVENLABS_VOICE_ID`, Multilingual v2, teatrale). *Provvisoria*: per una voce tutta sua, vedi sotto. |
+
+**Dare a una persona una voce TUTTA SUA** (come `germano`): aggiungi un
+`VoiceProfile` in [`speech.default_profiles`](../src/emilio/speech.py) con il
+`voice_id` ElevenLabs dedicato (e i parametri di tono che vuoi), poi referenzialo nel
+campo `voce` della persona. Le voci ElevenLabs richiedono `ELEVENLABS_API_KEY`: senza
+chiave la sintesi fallisce con un avviso (intercettato dalla console) e solo la
+persona di serie, sulla voce locale, parla comunque. `machiavelli` e `bucolica`
+oggi **condividono** la voce configurata (`ELEVENLABS_VOICE_ID`): basta un `voice_id`
+dedicato per renderle distinte come il germano.
 
 ---
 

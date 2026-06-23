@@ -14,8 +14,18 @@ class TestVoiceManager(unittest.TestCase):
     def test_profili_predefiniti(self):
         vm = VoiceManager(self.cfg)
         nomi = [p.name for p in vm.lista()]
-        for atteso in ["mock", "offline", "veloce", "realistico", "espressivo"]:
+        for atteso in ["mock", "offline", "veloce", "realistico", "espressivo",
+                       "germano"]:
             self.assertIn(atteso, nomi)
+
+    def test_voce_germano_dedicata(self):
+        # La voce 'germano' ha un voice_id FISSO (la sua firma), non eredita da
+        # ELEVENLABS_VOICE_ID, ed è una voce ElevenLabs visibile nel menu.
+        vm = VoiceManager(self.cfg)
+        p = {x.name: x for x in vm.lista()}["germano"]
+        self.assertEqual(p.backend, "elevenlabs")
+        self.assertEqual(p.voice_id, "uW2tUtSymsTeJDUJjn8E")
+        self.assertFalse(p.nascosto)
 
     def test_mock_nascosto_dal_menu(self):
         # 'mock' resta nel catalogo (selezionabile) ma è marcato nascosto: i menu

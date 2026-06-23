@@ -78,6 +78,11 @@ class Persona:
         "per colpire più forte (inventane di nuove sullo stesso registro), mai al posto "
         "del moccolo.",
     ])
+    # Voce associata al personaggio: nome di un profilo di speech.default_profiles
+    # (es. "germano"). Se valorizzato, selezionando la persona l'agente attiva
+    # automaticamente questa voce (vedi agent.set_persona). NON entra nel system
+    # prompt: è metadato, non carattere. Vuoto = lascia la voce attiva com'è.
+    voce: str = ""
 
     @classmethod
     def from_json(cls, path: str) -> "Persona":

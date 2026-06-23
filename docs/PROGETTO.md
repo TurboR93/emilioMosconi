@@ -194,11 +194,15 @@ Nessuna modifica al motore (`engine.py`).
 ## 6. La persona (carattere di Emilio)
 
 In `persona.py` come dato (modificabile o caricabile da JSON con `EMILIO_PERSONA`).
-Contiene biografia, tratti, stile, interessi, regole. È **tarata per esplodere**
+Contiene biografia, tratti, stile, interessi, regole e un campo **`voce`** (nome di
+un profilo di `speech.py`: selezionando la persona, l'agente attiva **da sola** quella
+voce — un personaggio si porta dietro la sua voce). È **tarata per esplodere**
 se provocato: da calmo è brontolone bonario e pulito; se insultato/contraddetto
 risponde acido e sboccato (la censura è a valle, non nel prompt). Da qui si
 costruisce il **system prompt**, che chiede anche un **tag di stato d'animo**
-iniziale (vedi §11).
+iniziale (vedi §11). Personaggi pronti in `tools/persona_*.json` (`germano` = vecchio
+**trevigiano incazzato** *alla Germano Mosconi*, con la sua voce dedicata;
+`machiavelli`; `bucolica`): dettaglio in `docs/PERSONE_E_MODELLI.md`.
 
 ---
 
@@ -245,8 +249,11 @@ catalogo e permette di cambiare voce a runtime.
 | `veloce` | ElevenLabs | **Flash v2.5**, streaming, bassa latenza |
 | `realistico` | ElevenLabs | **Multilingual v2**, massimo realismo |
 | `espressivo` | ElevenLabs | Multilingual v2, più teatrale |
+| `germano` | ElevenLabs | **voce DEDICATA** (`voice_id` fisso, clonata da audio veneto reale) della persona `germano`, vecchio trevigiano incazzato; Multilingual v2, espressiva |
 
-Selezione: `EMILIO_VOICE=veloce`, o `agent.set_voce(...)`/`/voce`. La voce
+Selezione: `EMILIO_VOICE=veloce`, o `agent.set_voce(...)`/`/voce`. Una **persona**
+può dichiarare la sua voce (campo `voce`): selezionandola, l'agente attiva quel
+profilo (vedi `docs/PERSONE_E_MODELLI.md`). La voce
 **offline** sceglie una voce di sistema italiana **vera** evitando le voci
 "eloquence" (robotiche/incomprensibili); `EMILIO_TTS_VOICE` (default `Luca`,
 maschile) sceglie per nome/id, con ripiego su Alice se assente.

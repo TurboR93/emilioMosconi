@@ -88,7 +88,9 @@ class EmilioConfig:
 
     # --- Voce (TTS) -----------------------------------------------------
     # Profilo voce attivo (vedi speech.default_profiles): mock | offline |
-    # veloce | realistico | espressivo. Se non impostato, deriva da EMILIO_TTS.
+    # veloce | realistico | espressivo | germano. Se non impostato, deriva da
+    # EMILIO_TTS. Una persona può imporre la sua voce (campo Persona.voce): la
+    # selezione della persona attiva quella voce, salvo pin esplicito EMILIO_VOICE.
     voice_profile: str | None = os.environ.get("EMILIO_VOICE")
     # backend "storico" usato come ripiego se EMILIO_VOICE non è impostato.
     tts_backend: str = os.environ.get("EMILIO_TTS", "mock")

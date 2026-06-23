@@ -75,7 +75,7 @@ def _nome_provider(url: str) -> str:
 def _nome_persona(path: str | None) -> str:
     """Nome breve di una persona dal percorso del file (None -> 'default').
 
-    Es. 'tools/persona_veterano.json' -> 'veterano'. Serve per mostrare in
+    Es. 'tools/persona_germano.json' -> 'germano'. Serve per mostrare in
     console quale personalità è attiva senza stampare un percorso intero.
     """
     if not path:
@@ -216,6 +216,11 @@ class EmilioAgent:
             solo_bestemmie=getattr(self.config, "censura_solo_bestemmie", True),
         )
         self.voci = voci or build_voice_manager(self.config)
+        # Voce della persona: se la persona ne dichiara una e l'utente non ha
+        # forzato EMILIO_VOICE (né iniettato un VoiceManager), il personaggio
+        # parte con la sua voce. Un pin esplicito via env ha sempre la precedenza.
+        if voci is None and not getattr(self.config, "voice_profile", None):
+            self._applica_voce_persona()
         self.mover = mover or build_mover(self.config)
         self.occhi = occhi or build_occhi(self.config)
         self.ascolto = ascolto or build_ascoltatore(self.config)
@@ -362,15 +367,33 @@ class EmilioAgent:
 
     @property
     def persona_nome(self) -> str:
-        """Nome breve della personalità attiva (es. 'default', 'veterano')."""
+        """Nome breve della personalità attiva (es. 'default', 'germano')."""
         return self.persona_origine
 
-    def set_persona(self, persona: Persona, origine: str = "personalizzata") -> None:
+    def set_persona(self, persona: Persona, origine: str = "personalizzata") -> str | None:
         """Carica un'altra personalità a runtime e ricostruisce il cervello col
-        nuovo system prompt. La memoria della conversazione viene azzerata."""
+        nuovo system prompt. La memoria della conversazione viene azzerata.
+
+        Se la persona dichiara una voce (campo `voce`), la attiva: un personaggio
+        si porta dietro la sua voce. Restituisce il nome della voce attivata (o
+        None se la persona non ne dichiara una o è sconosciuta), così la console
+        può segnalarlo."""
         self.persona = persona
         self.persona_origine = origine
         self.brain = build_brain(self.config, self.persona)
+        return self._applica_voce_persona()
+
+    def _applica_voce_persona(self) -> str | None:
+        """Attiva la voce dichiarata dalla persona (`Persona.voce`), se nota.
+        Best-effort: voce assente o non in catalogo -> nessun cambio, None."""
+        nome = (getattr(self.persona, "voce", "") or "").strip()
+        if not nome:
+            return None
+        try:
+            self.set_voce(nome)
+            return nome
+        except ValueError:
+            return None
 
     # -- controllo voci ----------------------------------------------------
 

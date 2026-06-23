@@ -123,16 +123,16 @@ Stato attuale (sintesi delle regole che contano per il tuo uso):
 
 Puoi caricare una persona alternativa senza toccare il codice, **all'avvio**:
 ```bash
-EMILIO_PERSONA=tools/persona_veterano.json ./avvia.sh
+EMILIO_PERSONA=tools/persona_germano.json ./avvia.sh
 ```
 …oppure **dalla console, a runtime**, con `/persona <nome|file>`:
 ```text
-tu> /persona veterano      # carica tools/persona_veterano.json
+tu> /persona germano       # carica tools/persona_germano.json
 tu> /persona default       # torna alla persona di serie
 tu> /persona               # elenca quelle disponibili
 ```
-Un nome semplice (`veterano`) viene cercato come `tools/persona_veterano.json`
-(o `persona_veterano.json` / `veterano.json`). Il JSON ha le stesse chiavi del
+Un nome semplice (`germano`) viene cercato come `tools/persona_germano.json`
+(o `persona_germano.json` / `germano.json`). Il JSON ha le stesse chiavi del
 dataclass (`biografia`, `tratti`, `regole`, ...). Cambiare persona **azzera la
 memoria** (vedi §6). Ne tieni quante ne vuoi: una per ogni carattere da provare.
 

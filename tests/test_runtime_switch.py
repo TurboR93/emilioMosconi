@@ -24,7 +24,7 @@ class TestNomePersona(unittest.TestCase):
         self.assertEqual(_nome_persona(""), "default")
 
     def test_toglie_prefisso_e_estensione(self):
-        self.assertEqual(_nome_persona("tools/persona_veterano.json"), "veterano")
+        self.assertEqual(_nome_persona("tools/persona_germano.json"), "germano")
         self.assertEqual(_nome_persona("/x/y/persona_burbero.json"), "burbero")
         self.assertEqual(_nome_persona("mia.json"), "mia")
 
@@ -102,20 +102,50 @@ class TestCambioPersona(unittest.TestCase):
         self.assertEqual(origine, "default")
         self.assertEqual(persona.eta, Persona().eta)
 
-    def test_risolvi_veterano_dal_file(self):
-        # tools/persona_veterano.json è versionato nel repo
-        persona, origine = _risolvi_persona("veterano")
-        self.assertEqual(origine, "veterano")
-        self.assertIn("veterano", persona.eta.lower())
+    def test_risolvi_germano_dal_file(self):
+        # tools/persona_germano.json è versionato nel repo
+        persona, origine = _risolvi_persona("germano")
+        self.assertEqual(origine, "germano")
+        self.assertIn("trevigiano", persona.eta.lower())   # vecchio veneto incazzato
+        self.assertEqual(persona.voce, "germano")           # porta la sua voce
 
     def test_risolvi_inesistente(self):
         with self.assertRaises(ValueError):
             _risolvi_persona("non_esiste_questa_persona")
 
-    def test_lista_include_default_e_veterano(self):
+    def test_lista_include_default_e_germano(self):
         nomi = _lista_persone()
         self.assertIn("default", nomi)
-        self.assertIn("veterano", nomi)
+        self.assertIn("germano", nomi)
+
+
+class TestPersonaPortaLaSuaVoce(unittest.TestCase):
+    """Una persona che dichiara `voce` impone quel profilo all'agente quando la
+    si seleziona: il personaggio si porta dietro la sua voce."""
+
+    def test_set_persona_attiva_la_voce_dichiarata(self):
+        a = _agente_mock()
+        a.set_voce("mock")
+        nuova = Persona(biografia="Sei un vècio incazzà.", voce="germano")
+        attivata = a.set_persona(nuova, "prova")
+        self.assertEqual(attivata, "germano")
+        self.assertEqual(a.voce_attiva, "germano")
+
+    def test_voce_sconosciuta_non_cambia_nulla(self):
+        a = _agente_mock()
+        a.set_voce("mock")
+        a.set_persona(Persona(voce="non_esiste"), "prova")
+        self.assertEqual(a.voce_attiva, "mock")        # nessun cambio, best-effort
+
+    def test_persona_senza_voce_lascia_quella_attiva(self):
+        a = _agente_mock()
+        a.set_voce("veloce")
+        self.assertIsNone(a.set_persona(Persona(), "default"))
+        self.assertEqual(a.voce_attiva, "veloce")
+
+    def test_file_germano_dichiara_la_sua_voce(self):
+        persona, _ = _risolvi_persona("germano")
+        self.assertEqual(persona.voce, "germano")
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@
 Avvio:
     python -m emilio                                  # mock, offline (nessuna chiave)
     EMILIO_LLM=local python -m emilio                 # cervello locale (Ollama/gemma)
-    EMILIO_PERSONA=tools/persona_veterano.json python -m emilio   # un'altra persona
+    EMILIO_PERSONA=tools/persona_germano.json python -m emilio   # un'altra persona
 
 PARLARE
     <testo>                 scrivi e premi invio: parli con Emilio (a TESTO)
@@ -112,8 +112,8 @@ def _lista_persone() -> list[str]:
 def _risolvi_persona(arg: str) -> tuple[Persona, str]:
     """Da un nome/percorso a (Persona, etichetta). 'default' = persona di serie.
 
-    Un nome semplice (es. 'veterano') viene cercato come
-    tools/persona_veterano.json, persona_veterano.json, veterano.json.
+    Un nome semplice (es. 'germano') viene cercato come
+    tools/persona_germano.json, persona_germano.json, germano.json.
     """
     if arg.lower() in ("default", "base", "emilio"):
         return Persona(), "default"
@@ -322,9 +322,11 @@ def _comando(agent: EmilioAgent, linea: str) -> bool:
         if scelto:
             try:
                 persona, origine = _risolvi_persona(scelto)
-                agent.set_persona(persona, origine)
+                voce = agent.set_persona(persona, origine)
                 print(f"✅ Persona attiva: {origine} — \"{persona.nome}\" "
                       f"({persona.eta}).  Memoria azzerata.")
+                if voce:
+                    print(f"   🔊 Voce: {voce} (assegnata alla persona).")
             except Exception as e:
                 print(f"⚠️  {e}")
     elif cmd == "/think":
