@@ -2,7 +2,9 @@
 offline, senza Ollama né rete (si resta sui backend 'mock' e 'local', che NON
 contattano nulla in fase di costruzione)."""
 
+import os
 import unittest
+from unittest.mock import patch
 
 from emilio.agent import EmilioAgent, _nome_persona
 from emilio.brain import LocalBrain, MockBrain
@@ -47,6 +49,27 @@ class TestCambioCervello(unittest.TestCase):
         a = _agente_mock()
         with self.assertRaises(ValueError):
             a.set_cervello("pippo")
+
+
+class TestModelloClaudeDefault(unittest.TestCase):
+    """Claude parte da Haiku (rapido/economico, TTFT basso per la voce); l'env
+    EMILIO_CLAUDE_MODEL esplicito continua a vincere."""
+
+    def test_default_e_haiku(self):
+        self.assertEqual(EmilioConfig().claude_model, "claude-haiku-4-5")
+
+    def test_env_esplicito_vince(self):
+        # i default leggono os.environ all'import: per provare la precedenza
+        # dell'env va ricaricato il modulo config sotto l'ambiente modificato.
+        import importlib
+
+        import emilio.config as cfgmod
+        with patch.dict(os.environ, {"EMILIO_CLAUDE_MODEL": "claude-opus-4-8"}):
+            importlib.reload(cfgmod)
+            try:
+                self.assertEqual(cfgmod.EmilioConfig().claude_model, "claude-opus-4-8")
+            finally:
+                importlib.reload(cfgmod)   # ripristina i default dall'ambiente reale
 
 
 class TestCambioModello(unittest.TestCase):

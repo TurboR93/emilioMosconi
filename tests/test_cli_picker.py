@@ -62,5 +62,18 @@ class TestModelliDisponibili(unittest.TestCase):
         self.assertEqual(_modello_attuale(a), a.config.local_llm_model)
 
 
+class TestMenuVoci(unittest.TestCase):
+    def test_mock_assente_dal_menu_ma_offline_presente(self):
+        a = EmilioAgent(EmilioConfig())
+        nomi = [p.name for p in a.voci_visibili()]
+        self.assertNotIn("mock", nomi)
+        self.assertIn("offline", nomi)
+
+    def test_mock_ancora_selezionabile_per_nome(self):
+        a = EmilioAgent(EmilioConfig())
+        a.set_voce("mock")
+        self.assertEqual(a.voce_attiva, "mock")
+
+
 if __name__ == "__main__":
     unittest.main()

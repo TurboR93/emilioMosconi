@@ -148,11 +148,12 @@ Dettagli per provider (verificati; `data[].id` vale per tutti):
   `x-api-key` + `anthropic-version: 2023-06-01`; endpoint GA, nessun header beta).
 - Fallback curato: `_MODELLI_CLAUDE = ["claude-haiku-4-5", "claude-sonnet-4-6",
   "claude-opus-4-8"]` (usato quando manca SDK o chiave).
-- Env: `EMILIO_CLAUDE_MODEL` (default `claude-opus-4-8`; `EMILIO_MODEL` resta come alias deprecato).
+- Env: `EMILIO_CLAUDE_MODEL` (default `claude-haiku-4-5`; `EMILIO_MODEL` resta come alias deprecato).
+  Passando a `claude` (avvio o `/cervello`) si parte da **Haiku**; `/modello-llm` sposta a sonnet/opus.
 - **Caveat:** la Models API **non** è disponibile su Amazon Bedrock né Google Vertex
   (lì la lista modelli va presa dalla console/API del provider). Per bassa latenza il
-  candidato è `claude-haiku-4-5` (il più veloce, 200K context); `claude-sonnet-4-6` è il
-  compromesso; `claude-opus-4-8` solo se serve più capacità.
+  candidato (e ora il **default**) è `claude-haiku-4-5` (il più veloce, 200K context);
+  `claude-sonnet-4-6` è il compromesso; `claude-opus-4-8` solo se serve più capacità.
 
 ---
 

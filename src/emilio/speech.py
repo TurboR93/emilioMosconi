@@ -51,6 +51,34 @@ class SpeechMetrics:
 
 
 # ---------------------------------------------------------------------------
+# Resa: artefatto pronto alla riproduzione (sintesi anticipata / prefetch)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Resa:
+    """Artefatto prodotto da `Speaker.prepara`, da dare poi a `Speaker.riproduci`.
+
+    Permette di SINTETIZZARE una frase senza riprodurla subito, così la pipeline
+    streaming sintetizza la frase successiva mentre la corrente suona (niente
+    pause). Tiene una delle tre forme:
+      * `path` -> file audio già sintetizzato (con `cleanup` = cartella temporanea
+        da rimuovere dopo la riproduzione);
+      * `testo` -> testo da stampare (mock);
+      * `_say`  -> ripiego (speaker, text, spans, prev): la sintesi+riproduzione
+        avviene in `riproduci` chiamando `say` (per i backend senza prefetch).
+    """
+    backend: str = ""
+    profilo: str = ""
+    caratteri: int = 0
+    ttfb: float | None = None
+    synth: float = 0.0                 # tempo di sola sintesi (entra nel totale)
+    path: str | None = None            # file audio da riprodurre
+    cleanup: str | None = None         # cartella temporanea da rimuovere dopo
+    testo: str | None = None           # mock: testo da stampare
+    _say: tuple | None = None          # ripiego: (speaker, text, spans, prev)
+
+
+# ---------------------------------------------------------------------------
 # Profilo voce (descrive UNA voce: backend, modello, parametri)
 # ---------------------------------------------------------------------------
 
@@ -59,6 +87,7 @@ class VoiceProfile:
     name: str
     backend: str                       # elevenlabs | pyttsx3 | mock
     descrizione: str = ""
+    nascosto: bool = False             # non mostrare nei menu interattivi (es. 'mock')
     # --- parametri ElevenLabs ---
     voice_id: str = ""                 # se vuoto usa ELEVENLABS_VOICE_ID
     model: str = "eleven_flash_v2_5"   # flash = bassa latenza
@@ -75,7 +104,7 @@ def default_profiles(config) -> list[VoiceProfile]:
     """Profili predefiniti. `voice_id` vuoto eredita da ELEVENLABS_VOICE_ID."""
     vid = config.elevenlabs_voice_id or ""
     return [
-        VoiceProfile("mock", "mock", "Stampa soltanto (sviluppo/test)"),
+        VoiceProfile("mock", "mock", "Stampa soltanto (sviluppo/test)", nascosto=True),
         VoiceProfile("offline", "pyttsx3", "TTS offline, senza rete"),
         VoiceProfile(
             "veloce", "elevenlabs",
@@ -100,6 +129,19 @@ def default_profiles(config) -> list[VoiceProfile]:
     ]
 
 
+# Modulazione delle impostazioni voce ElevenLabs per stato d'animo: parte dai
+# valori del profilo e sovrascrive solo le chiavi presenti, per "recitare"
+# l'emozione (voce instabile/enfatica se arrabbiato, più posata se triste...).
+# Emozioni assenti -> profilo invariato. Disattivabile con EMILIO_VOCE_EMOZIONE=0.
+EMOZIONI_VOCE: dict[str, dict[str, float]] = {
+    "arrabbiato": {"stability": 0.2, "style": 0.85},
+    "felice":     {"stability": 0.4, "style": 0.55},
+    "sorpreso":   {"stability": 0.3, "style": 0.6},
+    "triste":     {"stability": 0.75, "style": 0.2, "speed": 0.95},
+    "pensa":      {"stability": 0.7, "style": 0.25},
+}
+
+
 # ---------------------------------------------------------------------------
 # Speaker
 # ---------------------------------------------------------------------------
@@ -107,15 +149,46 @@ def default_profiles(config) -> list[VoiceProfile]:
 class Speaker(ABC):
     @abstractmethod
     def say(self, text: str, bleep_spans: list[tuple[int, int]] | None = None,
-            previous_text: str = "", next_text: str = "") -> SpeechMetrics:
+            previous_text: str = "", next_text: str = "",
+            emozione: str = "") -> SpeechMetrics:
         """Pronuncia `text`. Se `bleep_spans` è valorizzato, copre quegli
         intervalli di CARATTERE con un BIP sull'audio (censura amministratore).
 
         `previous_text`/`next_text` danno al TTS il contesto di ciò che è già
         stato detto / verrà detto: serve nella pipeline streaming perché le frasi
         sintetizzate separatamente mantengano un'intonazione CONTINUA (niente
-        salti di tono). I backend che non lo supportano li ignorano."""
+        salti di tono). `emozione` (stato d'animo) permette ai backend espressivi
+        di modulare il tono (vedi EMOZIONI_VOCE). I backend che non li supportano
+        li ignorano."""
         ...
+
+    def prepara(self, text: str, bleep_spans: list[tuple[int, int]] | None = None,
+                previous_text: str = "", next_text: str = "",
+                emozione: str = "") -> "Resa":
+        """Sintesi ANTICIPATA: prepara un artefatto pronto SENZA riprodurlo, così
+        la pipeline streaming sintetizza la frase successiva mentre quella corrente
+        suona (vedi agent.parla_streaming). Default: nessun prefetch — la
+        sintesi+riproduzione avviene in `riproduci` via `say`. Gli speaker che sanno
+        sintetizzare su file (pyttsx3, elevenlabs) la sovrascrivono."""
+        return Resa(_say=(self, text, bleep_spans, previous_text))
+
+    def riproduci(self, resa: "Resa") -> SpeechMetrics:
+        """Riproduce (bloccante) un artefatto prodotto da `prepara`. Sicura fuori
+        dal thread principale: riproduce un sottoprocesso o stampa, mai sintetizza
+        (la sintesi è già avvenuta in `prepara`, salvo il ripiego `_say`)."""
+        if resa._say is not None:
+            sp, text, spans, prev = resa._say
+            return sp.say(text, spans, prev)
+        t0 = time.perf_counter()
+        if resa.testo is not None:
+            print(f"🔊 [Emilio/{resa.profilo}] {resa.testo}")
+        elif resa.path:
+            if not _play_file(resa.path):
+                print(f"🔊 [Emilio] (audio in {resa.path}, nessun player)")
+        if resa.cleanup:
+            shutil.rmtree(resa.cleanup, ignore_errors=True)
+        return SpeechMetrics(resa.backend, resa.profilo, resa.ttfb,
+                             resa.synth + (time.perf_counter() - t0), resa.caratteri)
 
 
 class MockSpeaker(Speaker):
@@ -124,7 +197,8 @@ class MockSpeaker(Speaker):
         self.bip_marker = bip_marker
 
     def say(self, text: str, bleep_spans: list[tuple[int, int]] | None = None,
-            previous_text: str = "", next_text: str = "") -> SpeechMetrics:
+            previous_text: str = "", next_text: str = "",
+            emozione: str = "") -> SpeechMetrics:
         t0 = time.perf_counter()
         mostrato = (audio_bip.applica_span(text, bleep_spans, self.bip_marker)
                     if bleep_spans else text)
@@ -195,7 +269,9 @@ class Pyttsx3Speaker(Speaker):
         gc.collect()
 
     def say(self, text: str, bleep_spans: list[tuple[int, int]] | None = None,
-            previous_text: str = "", next_text: str = "") -> SpeechMetrics:
+            previous_text: str = "", next_text: str = "",
+            emozione: str = "") -> SpeechMetrics:
+        # `emozione` ignorata: la voce offline è piatta (l'emozione guida gli occhi).
         t0 = time.perf_counter()
         if bleep_spans and self._say_con_bip(text, bleep_spans):
             return SpeechMetrics("pyttsx3", self.profilo, None,
@@ -209,19 +285,55 @@ class Pyttsx3Speaker(Speaker):
         self._libera(eng)
         return SpeechMetrics("pyttsx3", self.profilo, None, time.perf_counter() - t0, len(text))
 
-    def _say_con_bip(self, text: str, spans: list[tuple[int, int]]) -> bool:
-        """Voce offline col BIP VERO sul CENTRO delle parolacce.
+    def prepara(self, text: str, bleep_spans: list[tuple[int, int]] | None = None,
+                previous_text: str = "", next_text: str = "",
+                emozione: str = "") -> Resa:
+        """Sintesi anticipata su FILE temporaneo unico (no riproduzione).
+
+        `emozione` ignorata (voce offline piatta). La sintesi pyttsx3 (`runAndWait`)
+        resta qui sul thread CHIAMANTE: la
+        pipeline streaming la invoca dal main (su macOS pyttsx3 non è thread-safe),
+        mentre la sola riproduzione va su un worker. Ritorna l'artefatto pronto."""
+        t0 = time.perf_counter()
+        if bleep_spans:
+            res = self._sintesi_con_bip(text, bleep_spans)
+            if res:
+                path, tmp = res
+                return Resa("pyttsx3", self.profilo, len(text), None,
+                            time.perf_counter() - t0, path=path, cleanup=tmp)
+            da_dire = audio_bip.testo_sicuro(text, bleep_spans)
+        else:
+            da_dire = text
+        tmp = tempfile.mkdtemp(prefix="emilio_tts_")
+        wav = os.path.join(tmp, "voce.wav")
+        eng = self._nuovo_engine()                  # engine usa-e-getta
+        eng.save_to_file(da_dire, wav)              # un'unica sintesi su file
+        eng.runAndWait()
+        self._libera(eng)
+        if not (os.path.exists(wav) and os.path.getsize(wav) > 0):
+            shutil.rmtree(tmp, ignore_errors=True)
+            # ripiego: sintesi+riproduzione insieme al momento di `riproduci`
+            return Resa("pyttsx3", self.profilo, len(text), None,
+                        time.perf_counter() - t0, _say=(self, da_dire, None, ""))
+        return Resa("pyttsx3", self.profilo, len(text), None,
+                    time.perf_counter() - t0, path=wav, cleanup=tmp)
+
+    def _sintesi_con_bip(self, text: str,
+                         spans: list[tuple[int, int]]) -> tuple[str, str] | None:
+        """Sintetizza su file e ci sovrappone il BIP, SENZA riprodurre.
 
         Una SOLA sintesi dell'intera frase (pyttsx3 si rompe se chiamato tante
         volte di fila), poi `ffmpeg` muta e ci sovrappone il bip sugli intervalli
         sporchi. La voce offline non dà i timestamp: si stima la posizione nel
         tempo in proporzione ai caratteri — approssimato ma affidabile (con
-        ElevenLabs il timing è invece esatto). True se va a buon fine.
+        ElevenLabs il timing è invece esatto). Ritorna (file_finale, cartella_temp)
+        oppure None: il chiamante riproduce e poi rimuove la cartella.
         """
         beep = audio_bip.scegli_beep(self.bip_dir)
         if not beep or not shutil.which("ffmpeg") or not text.strip() or not spans:
-            return False
+            return None
         tmp = tempfile.mkdtemp(prefix="emilio_bip_")
+        ok = False
         try:
             voce = os.path.join(tmp, "voce.wav")
             eng = self._nuovo_engine()              # engine usa-e-getta
@@ -229,20 +341,34 @@ class Pyttsx3Speaker(Speaker):
             eng.runAndWait()
             self._libera(eng)
             if not (os.path.exists(voce) and os.path.getsize(voce) > 0):
-                return False
+                return None
             dur = audio_bip._durata(voce)
             if not dur:
-                return False
+                return None
             # carattere -> tempo, stima uniforme; copre il centro di ogni parolaccia
             n = max(1, len(text))
             intervalli = audio_bip.fondi_intervalli(
                 [(a / n * dur, b / n * dur) for a, b in spans])
             out = os.path.join(tmp, "finale.wav")
             if intervalli and audio_bip.applica_bip(voce, intervalli, beep, out):
-                if not _play_file(out):
-                    print(f"🔊 [Emilio] (audio bippato in {out}, nessun player)")
-                return True
+                ok = True
+                return out, tmp
+            return None
+        finally:
+            if not ok:
+                shutil.rmtree(tmp, ignore_errors=True)
+
+    def _say_con_bip(self, text: str, spans: list[tuple[int, int]]) -> bool:
+        """Voce offline col BIP VERO sul CENTRO delle parolacce: sintetizza e
+        riproduce SUBITO (usato da `say`, pipeline a blocco unico). True se ok."""
+        res = self._sintesi_con_bip(text, spans)
+        if not res:
             return False
+        out, tmp = res
+        try:
+            if not _play_file(out):
+                print(f"🔊 [Emilio] (audio bippato in {out}, nessun player)")
+            return True
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
@@ -286,7 +412,8 @@ class ElevenLabsSpeaker(Speaker):
     BASE = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
 
     def __init__(self, profile: VoiceProfile, api_key: str,
-                 audio_out: str = "emilio_voce.mp3", bip_dir: str | None = None):
+                 audio_out: str = "emilio_voce.mp3", bip_dir: str | None = None,
+                 modula_emozione: bool = True):
         if not api_key:
             raise RuntimeError("ELEVENLABS_API_KEY mancante.")
         if not profile.voice_id:
@@ -297,17 +424,26 @@ class ElevenLabsSpeaker(Speaker):
         self.api_key = api_key
         self.audio_out = audio_out
         self.bip_dir = bip_dir
+        self.modula_emozione = modula_emozione
 
-    def _payload(self, text: str, previous_text: str = "", next_text: str = "") -> dict:
+    def _voice_settings(self, emozione: str = "") -> dict:
+        """Impostazioni voce del profilo, modulate per stato d'animo (recita)."""
+        vs = {
+            "stability": self.p.stability,
+            "similarity_boost": self.p.similarity_boost,
+            "style": self.p.style,
+            "speed": self.p.speed,
+        }
+        if self.modula_emozione and emozione in EMOZIONI_VOCE:
+            vs.update(EMOZIONI_VOCE[emozione])      # sovrascrive solo le chiavi presenti
+        return vs
+
+    def _payload(self, text: str, previous_text: str = "", next_text: str = "",
+                 emozione: str = "") -> dict:
         p = {
             "text": text,
             "model_id": self.p.model,
-            "voice_settings": {
-                "stability": self.p.stability,
-                "similarity_boost": self.p.similarity_boost,
-                "style": self.p.style,
-                "speed": self.p.speed,
-            },
+            "voice_settings": self._voice_settings(emozione),
         }
         # Contesto per un'intonazione CONTINUA fra frasi sintetizzate a parte.
         if previous_text:
@@ -317,13 +453,14 @@ class ElevenLabsSpeaker(Speaker):
         return p
 
     def say(self, text: str, bleep_spans: list[tuple[int, int]] | None = None,
-            previous_text: str = "", next_text: str = "") -> SpeechMetrics:
+            previous_text: str = "", next_text: str = "",
+            emozione: str = "") -> SpeechMetrics:
         if bleep_spans:
-            return self._say_censura(text, bleep_spans, previous_text, next_text)
-        return self._say_diretto(text, previous_text, next_text)
+            return self._say_censura(text, bleep_spans, previous_text, next_text, emozione)
+        return self._say_diretto(text, previous_text, next_text, emozione)
 
     def _say_diretto(self, text: str, previous_text: str = "",
-                     next_text: str = "") -> SpeechMetrics:
+                     next_text: str = "", emozione: str = "") -> SpeechMetrics:
         """Sintesi normale: streaming a bassa latenza, o file di ripiego."""
         import requests
 
@@ -340,7 +477,7 @@ class ElevenLabsSpeaker(Speaker):
             player_cmd = _stream_player()
             if player_cmd is not None:
                 with requests.post(url, headers=headers, params=params,
-                                   json=self._payload(text, previous_text, next_text),
+                                   json=self._payload(text, previous_text, next_text, emozione),
                                    stream=True, timeout=30) as r:
                     r.raise_for_status()
                     proc = subprocess.Popen(player_cmd, stdin=subprocess.PIPE)
@@ -363,7 +500,7 @@ class ElevenLabsSpeaker(Speaker):
         url = self.BASE.format(voice_id=self.p.voice_id)
         params = {"output_format": self.p.output_format}
         resp = requests.post(url, headers=headers, params=params,
-                             json=self._payload(text, previous_text, next_text), timeout=30)
+                             json=self._payload(text, previous_text, next_text, emozione), timeout=30)
         resp.raise_for_status()
         ttfb = time.perf_counter() - t0
         with open(self.audio_out, "wb") as f:
@@ -374,7 +511,8 @@ class ElevenLabsSpeaker(Speaker):
                              time.perf_counter() - t0, len(text))
 
     def _say_censura(self, text: str, bleep_spans: list[tuple[int, int]],
-                     previous_text: str = "", next_text: str = "") -> SpeechMetrics:
+                     previous_text: str = "", next_text: str = "",
+                     emozione: str = "") -> SpeechMetrics:
         """Sintesi CON timestamp + BIP sugli intervalli sporchi.
 
         Chiede a ElevenLabs l'audio con l'allineamento carattere→tempo
@@ -389,7 +527,7 @@ class ElevenLabsSpeaker(Speaker):
         headers = {"xi-api-key": self.api_key, "content-type": "application/json"}
         url = self.BASE.format(voice_id=self.p.voice_id) + "/with-timestamps"
         params = {"output_format": self.p.output_format}
-        payload = self._payload(text, previous_text, next_text)
+        payload = self._payload(text, previous_text, next_text, emozione)
         # Niente normalizzazione del testo: serve un allineamento 1:1 coi
         # caratteri (altrimenti gli offset del moderatore non combaciano).
         payload["apply_text_normalization"] = "off"
@@ -431,7 +569,86 @@ class ElevenLabsSpeaker(Speaker):
 
         # Ripiego sicuro: niente parolaccia udibile.
         return self._say_diretto(audio_bip.testo_sicuro(text, bleep_spans),
-                                 previous_text, next_text)
+                                 previous_text, next_text, emozione)
+
+    # -- Sintesi anticipata (prefetch): sintetizza su FILE, NON riproduce -----
+
+    def prepara(self, text: str, bleep_spans: list[tuple[int, int]] | None = None,
+                previous_text: str = "", next_text: str = "",
+                emozione: str = "") -> Resa:
+        if bleep_spans:
+            return self._prepara_censura(text, bleep_spans, previous_text, next_text, emozione)
+        return self._prepara_diretto(text, previous_text, next_text, emozione)
+
+    def _prepara_diretto(self, text: str, previous_text: str = "",
+                         next_text: str = "", emozione: str = "") -> Resa:
+        """Sintesi su file temporaneo UNICO (no riproduzione), per il prefetch.
+
+        Non usa lo streaming-to-player (che fonde sintesi e riproduzione): qui la
+        riproduzione avviene dopo, su un altro thread, leggendo questo file."""
+        import requests
+
+        headers = {"xi-api-key": self.api_key, "content-type": "application/json"}
+        url = self.BASE.format(voice_id=self.p.voice_id)
+        params = {"output_format": self.p.output_format}
+        t0 = time.perf_counter()
+        resp = requests.post(url, headers=headers, params=params,
+                             json=self._payload(text, previous_text, next_text, emozione), timeout=30)
+        resp.raise_for_status()
+        ttfb = time.perf_counter() - t0
+        tmp = tempfile.mkdtemp(prefix="emilio_tts_")
+        path = os.path.join(tmp, "voce.mp3")
+        with open(path, "wb") as f:
+            f.write(resp.content)
+        return Resa("elevenlabs", self.p.name, len(text), ttfb,
+                    time.perf_counter() - t0, path=path, cleanup=tmp)
+
+    def _prepara_censura(self, text: str, bleep_spans: list[tuple[int, int]],
+                         previous_text: str = "", next_text: str = "",
+                         emozione: str = "") -> Resa:
+        """Come `_say_censura` ma scrive l'audio bippato su file temporaneo UNICO
+        e NON lo riproduce (per il prefetch). Ripiego sicuro: testo con 'bip'."""
+        import base64
+        import requests
+
+        headers = {"xi-api-key": self.api_key, "content-type": "application/json"}
+        url = self.BASE.format(voice_id=self.p.voice_id) + "/with-timestamps"
+        params = {"output_format": self.p.output_format}
+        payload = self._payload(text, previous_text, next_text, emozione)
+        payload["apply_text_normalization"] = "off"
+        t0 = time.perf_counter()
+        try:
+            resp = requests.post(url, headers=headers, params=params,
+                                 json=payload, timeout=30)
+            resp.raise_for_status()
+            ttfb = time.perf_counter() - t0
+            data = resp.json()
+            audio = base64.b64decode(data["audio_base64"])
+            align = data.get("alignment") or {}
+            chars = align.get("characters") or []
+            cs = align.get("character_start_times_seconds") or []
+            ce = align.get("character_end_times_seconds") or []
+            if not (len(chars) == len(cs) == len(ce) == len(text)):
+                raise ValueError("allineamento non 1:1 col testo")
+            tmp = tempfile.mkdtemp(prefix="emilio_bip_")
+            grezzo = os.path.join(tmp, "voce.mp3")
+            with open(grezzo, "wb") as f:
+                f.write(audio)
+            intervalli = audio_bip.intervalli_da_allineamento(bleep_spans, cs, ce)
+            beep = audio_bip.scegli_beep(self.bip_dir)
+            out = os.path.join(tmp, "finale.mp3")
+            if intervalli and audio_bip.applica_bip(grezzo, intervalli, beep, out):
+                try:
+                    os.remove(grezzo)
+                except OSError:
+                    pass
+                return Resa("elevenlabs", self.p.name, len(text), ttfb,
+                            time.perf_counter() - t0, path=out, cleanup=tmp)
+            shutil.rmtree(tmp, ignore_errors=True)
+        except Exception as e:  # pragma: no cover - dipende dalla rete/ffmpeg
+            print(f"⚠️  Bip audio non riuscito ({e}); ripiego sicuro senza turpiloquio.")
+        return self._prepara_diretto(audio_bip.testo_sicuro(text, bleep_spans),
+                                     previous_text, next_text, emozione)
 
 
 # ---------------------------------------------------------------------------
@@ -494,6 +711,7 @@ class VoiceManager:
                 api_key=self.config.elevenlabs_api_key or "",
                 audio_out=self.config.audio_out,
                 bip_dir=getattr(self.config, "bip_dir", None),
+                modula_emozione=getattr(self.config, "voce_emozione", True),
             )
         if p.backend == "pyttsx3":
             return Pyttsx3Speaker(profilo=p.name, language=self.config.tts_language,
@@ -503,8 +721,19 @@ class VoiceManager:
                            bip_marker=getattr(self.config, "bip_marker", "[BIP]"))
 
     def say(self, text: str, bleep_spans: list[tuple[int, int]] | None = None,
-            previous_text: str = "", next_text: str = "") -> SpeechMetrics:
-        return self.speaker.say(text, bleep_spans, previous_text, next_text)
+            previous_text: str = "", next_text: str = "",
+            emozione: str = "") -> SpeechMetrics:
+        return self.speaker.say(text, bleep_spans, previous_text, next_text, emozione)
+
+    def prepara(self, text: str, bleep_spans: list[tuple[int, int]] | None = None,
+                previous_text: str = "", next_text: str = "",
+                emozione: str = "") -> Resa:
+        """Sintesi anticipata (prefetch): vedi Speaker.prepara."""
+        return self.speaker.prepara(text, bleep_spans, previous_text, next_text, emozione)
+
+    def riproduci(self, resa: Resa) -> SpeechMetrics:
+        """Riproduce un artefatto preparato: vedi Speaker.riproduci."""
+        return self.speaker.riproduci(resa)
 
 
 def list_elevenlabs_voices(api_key: str) -> list[dict]:

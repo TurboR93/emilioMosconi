@@ -235,7 +235,7 @@ Tutte in [`config.py`](../src/emilio/config.py). Le più utili per la messa a pu
 |---|---|---|
 | `EMILIO_LLM` | `mock` | backend cervello: `mock`/`local`/`claude`/`cloud` |
 | `EMILIO_LOCAL_MODEL` | `gemma4:12b` | modello Ollama |
-| `EMILIO_CLAUDE_MODEL` | `claude-opus-4-8` | modello Claude (ex `EMILIO_MODEL`, ancora valido); latenza → `claude-haiku-4-5` |
+| `EMILIO_CLAUDE_MODEL` | `claude-haiku-4-5` | modello Claude (ex `EMILIO_MODEL`, ancora valido); default Haiku = TTFT basso; più capacità → `claude-sonnet-4-6`/`claude-opus-4-8` |
 | `EMILIO_CLAUDE_THINK` | (off) | `adaptive` = ragionamento+effort (qualità, più lento); off = TTFT basso, ok con Haiku |
 | `EMILIO_CLOUD_URL` | `…groq.com/openai/v1` | endpoint OpenAI-compat. (Groq/OpenRouter/OpenAI) |
 | `EMILIO_CLOUD_MODEL` | `llama-3.3-70b-versatile` | modello cloud (`llama-3.1-8b-instant` = più rapido) |
@@ -249,7 +249,8 @@ Tutte in [`config.py`](../src/emilio/config.py). Le più utili per la messa a pu
 | `EMILIO_MODERATION` | `1` | censura on/off all'avvio |
 | `EMILIO_BIP_SOLO_BESTEMMIE` | `1` | bippa solo bestemmie; `0` = anche parolacce |
 | `EMILIO_MODERATE_INPUT` | `1` | rileva le provocazioni nell'input |
-| `EMILIO_VOICE` | `offline` (in `.env.local`) | `offline` (robotica, gratis) / `veloce`/`realistico`/`espressivo` (ElevenLabs) |
+| `EMILIO_VOICE` | `offline` (in `.env.local`) | `offline` (robotica, gratis) / `veloce`/`realistico`/`espressivo` (ElevenLabs). `mock` (stampa, nessun audio) resta valido via env ma è **nascosto dal menu** `/voce` |
+| `EMILIO_VOCE_EMOZIONE` | `1` | voce ElevenLabs col **tono modulato** dallo stato d'animo (arrabbiato instabile/enfatico, triste posato…); `0` = tono fisso da profilo. La voce `offline` resta piatta |
 | `EMILIO_ASCOLTO` | `mock` | STT: `mock`/`whisper`/`mlx` |
 
 > Le chiavi e le scelte personali (voce, modello) stanno in `.env.local`
@@ -272,7 +273,7 @@ e le **azioni principali**. Cambi le cose base **al volo, senza riavviare**:
 | `/cervello [..]` | cambia il **cervello** (mock/local/claude/cloud); **senza arg = menu numerato** |
 | `/modello-llm [nome]` | cambia il **modello dell'LLM/cervello**; **senza arg = menu numerato** (Ollama dal vivo, o preset Claude/cloud); o nome diretto. Alias: `/modello` |
 | `/persona [nome\|file]` | cambia **personalità**; **senza arg = menu numerato** delle persona disponibili; o nome/file diretto |
-| `/voce [nome]` | cambia **voce**; **senza arg = menu numerato**; `/voce test` per provarla |
+| `/voce [nome]` | cambia **voce**; **senza arg = menu numerato** (voci reali: offline/ElevenLabs; `mock` solo per nome); `/voce test` per provarla |
 | `/think off\|adaptive` | **latenza Claude**: `off` = veloce (Haiku) · `adaptive` = più qualità (Opus/Sonnet) |
 | `/lunghezza <n>` | lunghezza max risposta (`max_tokens`): corta = più rapida |
 | `/provider groq\|openrouter\|openai\|<url>` | endpoint del cervello **cloud** |

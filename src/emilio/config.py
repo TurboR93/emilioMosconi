@@ -23,9 +23,10 @@ class EmilioConfig:
     use_real_llm: bool = _env_bool("EMILIO_USE_LLM", False)
     # Modello del CERVELLO Claude (specifico, coerente con EMILIO_LOCAL_MODEL /
     # EMILIO_CLOUD_MODEL / EMILIO_STT_MODEL). `EMILIO_MODEL` resta come ALIAS
-    # DEPRECATO per retrocompatibilità.
+    # DEPRECATO per retrocompatibilità. Default Haiku: il più rapido (TTFT basso
+    # per la voce dal vivo) ed economico; /modello-llm passa a sonnet/opus.
     claude_model: str = (os.environ.get("EMILIO_CLAUDE_MODEL")
-                         or os.environ.get("EMILIO_MODEL", "claude-opus-4-8"))
+                         or os.environ.get("EMILIO_MODEL", "claude-haiku-4-5"))
     # Risposte BREVI: meno token = generazione più rapida e meno crediti voce
     # (ElevenLabs fattura a carattere). 220 basta per una o due battute.
     max_tokens: int = int(os.environ.get("EMILIO_MAX_TOKENS", "220"))
@@ -102,6 +103,10 @@ class EmilioConfig:
     # Sostituisci con la TUA voce italiana via ELEVENLABS_VOICE_ID (piano $5+).
     elevenlabs_voice_id: str = os.environ.get("ELEVENLABS_VOICE_ID", "pNInz6obpgDQGcFmaJgB")
     elevenlabs_model: str = os.environ.get("ELEVENLABS_MODEL", "eleven_multilingual_v2")
+    # La voce ElevenLabs modula il TONO in base allo stato d'animo (EMOZIONI_VOCE):
+    # arrabbiato più instabile/enfatico, triste più posato... Metti a 0 per un tono
+    # fisso da profilo. La voce offline resta comunque piatta.
+    voce_emozione: bool = _env_bool("EMILIO_VOCE_EMOZIONE", True)
     # Cartella dove salvare/riprodurre l'audio generato.
     audio_out: str = os.environ.get("EMILIO_AUDIO_OUT", "emilio_voce.mp3")
 

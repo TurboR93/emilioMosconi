@@ -3,7 +3,8 @@
 import unittest
 
 from emilio.config import EmilioConfig
-from emilio.speech import SpeechMetrics, VoiceManager, VoiceProfile
+from emilio.speech import (EMOZIONI_VOCE, ElevenLabsSpeaker, SpeechMetrics,
+                           VoiceManager, VoiceProfile)
 
 
 class TestVoiceManager(unittest.TestCase):
@@ -15,6 +16,21 @@ class TestVoiceManager(unittest.TestCase):
         nomi = [p.name for p in vm.lista()]
         for atteso in ["mock", "offline", "veloce", "realistico", "espressivo"]:
             self.assertIn(atteso, nomi)
+
+    def test_mock_nascosto_dal_menu(self):
+        # 'mock' resta nel catalogo (selezionabile) ma è marcato nascosto: i menu
+        # interattivi non lo mostrano (vedi agent.voci_visibili / CLI /voce).
+        vm = VoiceManager(self.cfg)
+        prof = {p.name: p for p in vm.lista()}
+        self.assertTrue(prof["mock"].nascosto)
+        for nome in ("offline", "veloce", "realistico", "espressivo"):
+            self.assertFalse(prof[nome].nascosto)
+
+    def test_mock_resta_selezionabile(self):
+        # nascosto dal menu, ma /voce mock e EMILIO_VOICE=mock devono funzionare
+        vm = VoiceManager(self.cfg)
+        vm.imposta("mock")
+        self.assertEqual(vm.attiva, "mock")
 
     def test_default_attiva_da_tts_backend(self):
         cfg = EmilioConfig()
@@ -56,6 +72,34 @@ class TestVoiceManager(unittest.TestCase):
         self.assertEqual(m.backend, "mock")
         self.assertEqual(m.caratteri, 4)
         self.assertGreaterEqual(m.totale, 0.0)
+
+
+class TestPayloadEmozione(unittest.TestCase):
+    """La voce ElevenLabs modula le voice_settings in base allo stato d'animo."""
+
+    def _speaker(self, modula=True):
+        p = VoiceProfile("espressivo", "elevenlabs", voice_id="x", style=0.6,
+                         stability=0.5)
+        return ElevenLabsSpeaker(p, api_key="k", modula_emozione=modula)
+
+    def test_modula_voce_per_emozione(self):
+        sp = self._speaker(modula=True)
+        vs = sp._payload("ciao", emozione="arrabbiato")["voice_settings"]
+        self.assertEqual(vs["stability"], EMOZIONI_VOCE["arrabbiato"]["stability"])
+        self.assertEqual(vs["style"], EMOZIONI_VOCE["arrabbiato"]["style"])
+
+    def test_neutro_e_default_usano_il_profilo(self):
+        sp = self._speaker(modula=True)
+        for emo in ("", "neutro"):
+            vs = sp._payload("ciao", emozione=emo)["voice_settings"]
+            self.assertEqual(vs["stability"], 0.5)
+            self.assertEqual(vs["style"], 0.6)
+
+    def test_flag_off_disattiva_la_modulazione(self):
+        sp = self._speaker(modula=False)
+        vs = sp._payload("ciao", emozione="arrabbiato")["voice_settings"]
+        self.assertEqual(vs["stability"], 0.5)   # resta il valore del profilo
+        self.assertEqual(vs["style"], 0.6)
 
 
 if __name__ == "__main__":

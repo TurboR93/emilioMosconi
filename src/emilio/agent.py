@@ -40,6 +40,15 @@ _TAG_EMOZIONE = re.compile(r"""^\s*["'*]*\[\s*([^\]]{1,30}?)\s*\]["'*]*\s*""")
 # Emozioni che l'LLM può dichiarare (le altre voci di ESPRESSIONI sono "di stato").
 _EMOZIONI_LLM = {"neutro", "felice", "arrabbiato", "sorpreso", "triste", "pensa"}
 
+# Ripiego per i modelli (spesso LOCALI) che DIMENTICANO le parentesi quadre e
+# scrivono lo stato d'animo "nudo": "felice ...", "Felice:", "(felice)", "*felice*".
+_SEP_EMOZIONE = r"[:;\-–—\n]"
+_EMO_ALT = "|".join(sorted(_EMOZIONI_LLM, key=len, reverse=True))
+_TAG_EMOZIONE_NUDO = re.compile(
+    rf"""^\s*(?P<ap>["'*(]*)\s*(?P<emo>{_EMO_ALT})\s*(?P<ch>["'*)]*)
+         (?:\s*(?P<sep>{_SEP_EMOZIONE}))?\s*""",
+    re.IGNORECASE | re.VERBOSE)
+
 
 _TERMINATORI = ".!?…"
 _CHIUSURE = "\"'»)]"
@@ -128,28 +137,42 @@ def _fondi_metriche(ms: list) -> "SpeechMetrics | None":
 
 
 def _estrai_emozione(testo: str) -> tuple[str | None, str]:
-    """Stacca il tag '[...]' iniziale dello stato d'animo (non si pronuncia).
+    """Stacca il tag iniziale dello stato d'animo dell'LLM (non si pronuncia).
 
-    - emozione NOTA ('[arrabbiato]', '[molto arrabbiato]', '"[Arrabbiato]"') ->
-      la ritorna e la stacca;
-    - tag d'animo INVENTATO dal modello, in minuscolo e di 1-3 parole
-      ('[scettico]', '[brontolo bonario]') -> lo stacca comunque (emozione neutra),
-      così non finisce PRONUNCIATO;
-    - contenuto legittimo fra parentesi (maiuscole/cifre/punteggiatura, es.
-      '[Bologna]', '[ndr]', '[3-1]') -> lascia il testo INTATTO.
+    1) Forma canonica fra parentesi quadre '[...]':
+       - emozione NOTA ('[arrabbiato]', '[molto arrabbiato]', '"[Arrabbiato]"') ->
+         la ritorna e la stacca;
+       - tag d'animo INVENTATO, minuscolo, 1-3 parole ('[scettico]') -> lo stacca
+         comunque (emozione neutra), così non finisce PRONUNCIATO;
+       - contenuto legittimo ('[Bologna]', '[ndr]', '[3-1]') -> testo INTATTO.
+    2) Ripiego SENZA parentesi (modelli che le dimenticano): stacca SOLO una
+       emozione NOTA, eventualmente avvolta da ()/""/''/** , e solo se è seguita
+       da un separatore "da etichetta", o se l'involucro segnala il tag, o se è
+       tutto il buffer. Mai toccare una frase che comincia per davvero con la
+       parola (es. 'Felice di vederti, come stai?': resta intatta).
     """
     m = _TAG_EMOZIONE.match(testo)
-    if not m:
+    if m:
+        contenuto = m.group(1).strip()
+        parole = re.findall(r"[a-zàèéìòùáíóúü]+", contenuto.lower())
+        emo = parole[-1] if parole else ""
+        if emo in _EMOZIONI_LLM:
+            return emo, testo[m.end():]
+        # tag d'animo inventato: solo lettere minuscole/spazi, al massimo 3 parole
+        if parole and len(parole) <= 3 and re.fullmatch(r"[a-zàèéìòùáíóúü ]+", contenuto):
+            return None, testo[m.end():]
+        return None, testo      # sembra contenuto vero ([Bologna], [3-1]): non toccare
+
+    # --- ripiego: stato d'animo "nudo", senza parentesi quadre ---
+    n = _TAG_EMOZIONE_NUDO.match(testo)
+    if not n:
         return None, testo
-    contenuto = m.group(1).strip()
-    parole = re.findall(r"[a-zàèéìòùáíóúü]+", contenuto.lower())
-    emo = parole[-1] if parole else ""
-    if emo in _EMOZIONI_LLM:
-        return emo, testo[m.end():]
-    # tag d'animo inventato: solo lettere minuscole/spazi, al massimo 3 parole
-    if parole and len(parole) <= 3 and re.fullmatch(r"[a-zàèéìòùáíóúü ]+", contenuto):
-        return None, testo[m.end():]
-    return None, testo          # sembra contenuto vero ([Bologna], [3-1]): non toccare
+    emo = n.group("emo").lower()
+    resto = testo[n.end():]
+    avvolto = bool(n.group("ap") or n.group("ch"))   # (), "", '', **
+    if avvolto or n.group("sep") or not resto.strip():
+        return emo, resto
+    return None, testo          # "Felice di vederti...": nessun segnale -> non toccare
 
 
 @dataclass
@@ -354,6 +377,11 @@ class EmilioAgent:
     def lista_voci(self) -> list[VoiceProfile]:
         return self.voci.lista()
 
+    def voci_visibili(self) -> list[VoiceProfile]:
+        """Profili da mostrare nei menu interattivi (nasconde 'mock'); 'mock' resta
+        comunque selezionabile per nome e via EMILIO_VOICE."""
+        return [p for p in self.voci.lista() if not p.nascosto]
+
     def set_voce(self, nome: str) -> VoiceProfile:
         """Cambia la voce attiva a runtime."""
         return self.voci.imposta(nome)
@@ -454,14 +482,23 @@ class EmilioAgent:
         self.streaming = attivo
 
     def parla_streaming(self, input_utente: str, su_frase=None) -> RisultatoParlato:
-        """Come `parla`, ma pronuncia FRASE PER FRASE mentre l'LLM genera: la
-        prima battuta parte appena pronta, senza aspettare tutta la risposta.
+        """Pronuncia FRASE PER FRASE mentre l'LLM genera: ogni frase parte appena
+        pronta, senza aspettare tutta la risposta.
 
-        Ogni frase passa dal supervisore singolarmente (stessa censura via BIP).
-        Il tag di stato d'animo iniziale viene staccato prima di parlare.
-        `su_frase` (callback opzionale) riceve ogni frase BIPPATA appena prima di
-        pronunciarla (modalità monitor della console, /verboso).
+        Per non lasciare PAUSE fra una frase e l'altra, la SINTESI della frase
+        successiva avviene sul thread principale MENTRE un thread-worker RIPRODUCE
+        (in ordine FIFO) quella corrente: la voce non si ferma a sintetizzare. La
+        sintesi pyttsx3 resta sul main (su macOS non è thread-safe); sul worker va
+        solo la riproduzione (sottoprocesso). Vale per ElevenLabs, offline e mock.
+
+        Ogni frase passa dal supervisore singolarmente (stessa censura via BIP). Il
+        tag di stato d'animo iniziale viene staccato prima di parlare. `su_frase`
+        (callback opzionale) riceve ogni frase BIPPATA appena prima di pronunciarla
+        (modalità monitor della console, /verboso).
         """
+        import queue
+        import threading
+
         try:
             self.occhi.imposta("pensa")
         except Exception:
@@ -477,12 +514,42 @@ class EmilioAgent:
         frasi_dette: list[str] = []
         span_tot: list[tuple[int, int]] = []
         metriche: list[SpeechMetrics] = []
+        coda: queue.Queue = queue.Queue()
         t0 = time.perf_counter()
         ttft: float | None = None
 
-        prima_fatta = False
+        def _riproduci_loop() -> None:
+            """Worker: riproduce in ordine gli artefatti pronti, uno alla volta.
+            Mai solleva (così non lascia la coda appesa): cattura tutto."""
+            while True:
+                item = coda.get()
+                try:
+                    if item is None:                  # sentinella di fine
+                        return
+                    resa, detto, era_arrabbiato = item
+                    if su_frase:                      # monitor: mostra cosa STA per dire
+                        su_frase(detto)
+                    try:
+                        self.occhi.imposta("arrabbiato" if era_arrabbiato else "parla")
+                    except Exception:
+                        pass
+                    try:
+                        self.mover.move("bocca")
+                    except Exception:
+                        pass
+                    try:
+                        m = self.voci.riproduci(resa)
+                        if m:
+                            metriche.append(m)
+                    except Exception:
+                        pass
+                finally:
+                    coda.task_done()
 
-        def _parla_frase(frase: str) -> None:
+        worker = threading.Thread(target=_riproduci_loop, daemon=True)
+        worker.start()
+
+        def _prepara_e_accoda(frase: str) -> None:
             nonlocal arrabbiato
             frase = frase.strip()
             if not frase:
@@ -492,53 +559,60 @@ class EmilioAgent:
             detto = self.moderator.testo_con_bip(frase, report)
             if report.has_profanity or report.has_blasphemy:
                 arrabbiato = True
-            if su_frase:                      # monitor: mostra cosa STA per dire
-                su_frase(detto)
-            try:
-                self.occhi.imposta("arrabbiato" if arrabbiato else "parla")
-            except Exception:
-                pass
-            try:
-                self.mover.move("bocca")
-            except Exception:
-                pass
-            # Passa al TTS ciò che ha GIÀ detto: così la voce continua l'intonazione
+            # Contesto per il TTS: ciò che ha GIÀ detto, così l'intonazione continua
             # invece di "ripartire" a ogni frase (niente salti di tono).
             prev = " ".join(frasi_grezze)
-            metriche.append(self.voci.say(frase, bleep_spans=span, previous_text=prev))
+            # Stato d'animo per "recitare" la frase (la voce ElevenLabs modula il tono).
+            emo_voce = "arrabbiato" if arrabbiato else (
+                tag if tag in _EMOZIONI_LLM else "neutro")
+            try:
+                # Sintesi ANTICIPATA sul main: si sovrappone alla riproduzione della
+                # frase precedente (che gira sul worker) -> niente pause fra le frasi.
+                resa = self.voci.prepara(frase, bleep_spans=span, previous_text=prev,
+                                         emozione=emo_voce)
+            except Exception:
+                resa = None
             frasi_grezze.append(frase)
             frasi_dette.append(detto)
             span_tot.extend(span)
+            if resa is not None:
+                coda.put((resa, detto, arrabbiato))
 
-        for pezzo in self.brain.reply_stream(input_utente, umore=umore):
-            if ttft is None:
-                ttft = time.perf_counter() - t0
-            buffer += pezzo
-            if not tag_risolto:
-                # stacca il tag [emozione] appena c'è abbastanza testo per deciderlo
-                if ("]" in buffer or len(buffer) >= 48
-                        or (buffer.strip() and buffer.lstrip()[0] != "[")):
-                    tag, buffer = _estrai_emozione(buffer)
-                    tag_risolto = True
-                    if tag == "arrabbiato":
-                        arrabbiato = True
-                else:
-                    continue
-            # Parla SUBITO la prima frase (TTFT basso); il resto si accumula e si
-            # dice in un BLOCCO UNICO a fine generazione (meno frammentazione,
-            # tono più coerente). Per le risposte di 1 frase coincide col blocco.
-            if not prima_fatta:
+        try:
+            for pezzo in self.brain.reply_stream(input_utente, umore=umore):
+                if ttft is None:
+                    ttft = time.perf_counter() - t0
+                buffer += pezzo
+                if not tag_risolto:
+                    # stacca il tag appena c'è abbastanza testo per deciderlo: tag fra
+                    # [] chiuso, OPPURE buffer lungo, OPPURE (tag "nudo") la prima parola
+                    # è ormai DELIMITATA e c'è già l'inizio di una seconda (`\S\s+\S`):
+                    # solo allora la decisione di `_estrai_emozione` è stabile come nel
+                    # percorso non-streaming. A metà parola ("felice ") non si decide:
+                    # potrebbe essere l'inizio di "felice di vederti..."; il caso "parola
+                    # d'animo da sola" lo chiude il flush finale, a stream concluso.
+                    nudo_pronto = (buffer.lstrip()[:1] not in ("", "[")
+                                   and re.search(r"\S\s+\S", buffer))
+                    if "]" in buffer or len(buffer) >= 48 or nudo_pronto:
+                        tag, buffer = _estrai_emozione(buffer)
+                        tag_risolto = True
+                        if tag == "arrabbiato":
+                            arrabbiato = True
+                    else:
+                        continue
+                # pronuncia OGNI frase appena completa (la sintesi della prossima si
+                # sovrappone alla riproduzione di questa -> niente pause)
                 frasi, buffer = _spezza_frasi(buffer)
-                if frasi:
-                    _parla_frase(frasi[0])
-                    prima_fatta = True
-                    resto = " ".join(frasi[1:])     # eventuali frasi già pronte
-                    buffer = (resto + " " + buffer) if resto else buffer
+                for frase in frasi:
+                    _prepara_e_accoda(frase)
 
-        if not tag_risolto:                       # risposta cortissima senza tag chiuso
-            tag, buffer = _estrai_emozione(buffer)
-        if buffer.strip():                         # tutto il resto, in un blocco unico
-            _parla_frase(buffer)
+            if not tag_risolto:                   # risposta cortissima senza tag chiuso
+                tag, buffer = _estrai_emozione(buffer)
+            if buffer.strip():                     # ultima frase (senza terminatore)
+                _prepara_e_accoda(buffer)
+        finally:
+            coda.put(None)                         # sentinella di fine
+            worker.join()                          # aspetta che tutto l'audio sia suonato
 
         testo_grezzo = " ".join(frasi_grezze).strip()
         testo_detto = " ".join(frasi_dette).strip()
@@ -586,7 +660,7 @@ class EmilioAgent:
             self.occhi.imposta("arrabbiato" if arrabbiato else "parla")
         except Exception:
             pass
-        metriche = self.voci.say(testo, bleep_spans=span)
+        metriche = self.voci.say(testo, bleep_spans=span, emozione=emozione)
         # A fine battuta lascia l'espressione dichiarata se è "stabile"
         # (neutro/felice/arrabbiato/sorpreso/triste); pensa/parla/ascolta -> neutro.
         riposo = emozione if emozione in ESPRESSIONI and emozione not in (

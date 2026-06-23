@@ -402,7 +402,7 @@ def _comando(agent: EmilioAgent, linea: str) -> bool:
             print("Uso: /di <testo>")
     elif cmd == "/voci":
         print(f"Voce attiva: {agent.voce_attiva}")
-        for p in agent.lista_voci():
+        for p in agent.voci_visibili():
             attiva = "→" if p.name == agent.voce_attiva else " "
             print(f" {attiva} {p.name:<12} [{p.backend}] {p.descrizione}")
     elif cmd == "/voce":
@@ -412,7 +412,7 @@ def _comando(agent: EmilioAgent, linea: str) -> bool:
             print(f"   [{m}]")
         else:
             scelto = args[0] if args else _scegli(
-                "Voci disponibili:", [p.name for p in agent.lista_voci()],
+                "Voci disponibili:", [p.name for p in agent.voci_visibili()],
                 attivo=agent.voce_attiva)
             if scelto:
                 try:

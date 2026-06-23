@@ -298,7 +298,7 @@ Da console: `/censura on|off|stato`. Per ampliare il lessico aggiungi termini in
 | `EMILIO_LOCAL_THINK` | `0` | `1` abilita il ragionamento (lento) dell'LLM locale |
 | `EMILIO_LOCAL_KEEP_ALIVE` | `30m` | quanto Ollama tiene il modello caldo (`-1` = sempre) |
 | `EMILIO_USE_LLM` | `0` | retrocompat: `1` = `claude` se `EMILIO_LLM` non impostato |
-| `EMILIO_CLAUDE_MODEL` | `claude-opus-4-8` | modello Claude (ex `EMILIO_MODEL`, ancora valido come alias); latenza → `claude-haiku-4-5` |
+| `EMILIO_CLAUDE_MODEL` | `claude-haiku-4-5` | modello Claude (ex `EMILIO_MODEL`, ancora valido come alias); default Haiku = TTFT basso; più capacità → `claude-sonnet-4-6`/`claude-opus-4-8` |
 | `EMILIO_CLAUDE_THINK` | (vuoto = off) | `adaptive` = ragionamento+effort (più qualità, più lento); off = TTFT basso, ok con Haiku |
 | `EMILIO_CLOUD_URL` | `https://api.groq.com/openai/v1` | endpoint OpenAI-compatibile (Groq/OpenRouter/OpenAI) |
 | `EMILIO_CLOUD_MODEL` | `llama-3.3-70b-versatile` | modello del provider cloud (`llama-3.1-8b-instant` = più rapido) |
@@ -311,7 +311,8 @@ Da console: `/censura on|off|stato`. Per ampliare il lessico aggiungi termini in
 | `EMILIO_BIP_MARKER` | `[BIP]` | come appare il bip in console/log |
 | `EMILIO_BIP_DIR` | (pacchettizzati) | cartella con i file BIP (lista) |
 | `EMILIO_CENSOR_STYLE` | `mask` | resa testuale legacy (`mask`/`bleep`/`euphemism`) |
-| `EMILIO_VOICE` | (vuoto) | profilo voce: `mock`/`offline`/`veloce`/`realistico`/`espressivo`; se vuoto deriva da `EMILIO_TTS` |
+| `EMILIO_VOICE` | (vuoto) | profilo voce: `offline`/`veloce`/`realistico`/`espressivo`; se vuoto deriva da `EMILIO_TTS`. `mock` (stampa, nessun audio) resta valido ma è **nascosto dal menu** `/voce` |
+| `EMILIO_VOCE_EMOZIONE` | `1` | voce ElevenLabs col **tono modulato** dallo stato d'animo; `0` = tono fisso da profilo (la voce `offline` resta piatta) |
 | `EMILIO_TTS` | `mock` | ripiego se `EMILIO_VOICE` non impostato |
 | `EMILIO_TTS_VOICE` | `Luca` | voce di sistema per il TTS offline (pyttsx3); ripiego Alice |
 | `ELEVENLABS_API_KEY` / `ELEVENLABS_VOICE_ID` | — | voce realistica IT |

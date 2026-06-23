@@ -37,18 +37,33 @@ class _CervelloPezzi(Brain):
 
 
 class _VoceFinta:
-    """Registra le frasi pronunciate, gli span di censura e il contesto."""
+    """Registra le frasi pronunciate, gli span di censura e il contesto.
+
+    Espone l'API prepara/riproduci usata dalla pipeline streaming: `prepara`
+    registra (testo, span, contesto) — viene chiamata sul main, in ordine — e
+    ritorna le metriche come "artefatto"; `riproduci` (sul worker) le restituisce."""
 
     def __init__(self):
         self.dette = []
         self.span = []
         self.prev = []
+        self.emozioni = []
 
-    def say(self, text, bleep_spans=None, previous_text="", next_text=""):
+    def _registra(self, text, bleep_spans, previous_text, emozione):
         self.dette.append(text)
         self.span.append(bleep_spans or [])
         self.prev.append(previous_text)
+        self.emozioni.append(emozione)
         return SpeechMetrics("finta", "finta", ttfb=0.01, totale=0.02, caratteri=len(text))
+
+    def say(self, text, bleep_spans=None, previous_text="", next_text="", emozione=""):
+        return self._registra(text, bleep_spans, previous_text, emozione)
+
+    def prepara(self, text, bleep_spans=None, previous_text="", next_text="", emozione=""):
+        return self._registra(text, bleep_spans, previous_text, emozione)
+
+    def riproduci(self, resa):
+        return resa
 
 
 def _agente(brain, voci=None):
@@ -98,17 +113,17 @@ class TestFondiMetriche(unittest.TestCase):
 # --- pipeline streaming ----------------------------------------------------
 
 class TestParlaStreaming(unittest.TestCase):
-    def test_tag_e_chunking_prima_frase_poi_blocco(self):
+    def test_tag_e_chunking_frase_per_frase(self):
         voci = _VoceFinta()
         brain = _CervelloPezzi(["[fel", "ice] Ciao a ", "tutti. Come va", " oggi? Bene."])
         ris = _agente(brain, voci).parla_streaming("ciao")
         # il tag spezzato fra due pezzi viene comunque staccato (non si pronuncia)
         self.assertEqual(ris.emozione, "felice")
         self.assertNotIn("felice]", " ".join(voci.dette))
-        # prima frase subito (TTFT basso), poi TUTTO il resto in un blocco unico
-        self.assertEqual(voci.dette, ["Ciao a tutti.", "Come va oggi? Bene."])
-        # la seconda sintesi riceve come contesto ciò che è già stato detto
-        self.assertEqual(voci.prev, ["", "Ciao a tutti."])
+        # OGNI frase completa viene pronunciata appena pronta (non più in blocco)
+        self.assertEqual(voci.dette, ["Ciao a tutti.", "Come va oggi?", "Bene."])
+        # ogni sintesi riceve come contesto ciò che è già stato detto (intonazione continua)
+        self.assertEqual(voci.prev, ["", "Ciao a tutti.", "Ciao a tutti. Come va oggi?"])
 
     def test_insulto_bippa_frase_per_frase_e_occhi_arrabbiati(self):
         voci = _VoceFinta()
@@ -126,6 +141,26 @@ class TestParlaStreaming(unittest.TestCase):
         ris = ag.parla_streaming("ciao, come stai oggi?")
         self.assertNotEqual(ris.emozione, "arrabbiato")
         self.assertFalse(ris.censura_applicata)
+
+    def test_tag_nudo_senza_parentesi_non_si_pronuncia(self):
+        # modello che dimentica le [] e scrive "felice:" -> il tag va staccato
+        # comunque e l'emozione guida la voce, senza pronunciare la parola.
+        voci = _VoceFinta()
+        brain = _CervelloPezzi(["felice:", " Ciao a ", "tutti. Bene."])
+        ris = _agente(brain, voci).parla_streaming("ciao")
+        self.assertEqual(ris.emozione, "felice")
+        self.assertNotIn("felice", " ".join(voci.dette).lower())
+        self.assertEqual(voci.dette, ["Ciao a tutti.", "Bene."])
+        # l'emozione viene passata alla voce per "recitarla"
+        self.assertEqual(voci.emozioni, ["felice", "felice"])
+
+    def test_parola_danimo_iniziale_non_viene_mangiata(self):
+        # "Felice di vederti..." NON è un tag (niente separatore): resta intatta,
+        # come nel percorso non-streaming (niente falsi positivi a metà stream).
+        voci = _VoceFinta()
+        brain = _CervelloPezzi(["Felice", " di vederti", ", come stai", "? Bene."])
+        _agente(brain, voci).parla_streaming("ciao")
+        self.assertEqual(voci.dette, ["Felice di vederti, come stai?", "Bene."])
 
 
 class TestToggleStreaming(unittest.TestCase):

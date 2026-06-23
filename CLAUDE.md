@@ -32,9 +32,16 @@ sceglie `parla_streaming` o `parla`. `parla_streaming` consuma `brain.reply_stre
 (generatore di pezzi), stacca il tag emozione dalla testa, spezza in frasi con
 `_spezza_frasi` (i `...` sono **pausa**, non fine frase) e pronuncia **ogni frase
 appena completa** (moderata singolarmente, col suo BIP) mentre l'LLM genera il
-resto → TTFT basso. Risposte tenute **brevi** (persona + `EMILIO_MAX_TOKENS`,
-default 220): parte prima e con ElevenLabs spende meno crediti. La vecchia `parla`
-(genera tutto, poi parla) resta per `/di`, i test e `EMILIO_STREAMING=0`.
+resto → TTFT basso. **Niente pause fra le frasi**: la **sintesi** della frase
+successiva avviene sul **thread principale** (`VoiceManager.prepara` → file
+temporaneo unico, mai riproduce) MENTRE un **unico thread-worker** la **riproduce**
+in ordine FIFO (`VoiceManager.riproduci`); così la voce non si ferma a sintetizzare.
+La sintesi pyttsx3 resta sul main (su macOS non è thread-safe), sul worker va solo
+la riproduzione (sottoprocesso): vale per ElevenLabs, **offline** e mock. Risposte
+tenute **brevi** (persona + `EMILIO_MAX_TOKENS`, default 220): parte prima e con
+ElevenLabs spende meno crediti. La vecchia `parla` (genera tutto, poi parla, via
+`VoiceManager.say` in streaming-to-player) resta per `/di`, i test e
+`EMILIO_STREAMING=0`.
 
 **Censura via BIP, MIRATA** (modello deciso col committente): il cervello **NON
 riformula**; il supervisore individua parolacce/bestemmie e restituisce gli span
@@ -111,7 +118,9 @@ streaming è già attivo): il **`ClaudeBrain`** è tarato per la latenza — di 
 NON manda `thinking`/`output_config.effort` (`EMILIO_CLAUDE_THINK` vuoto/`off`),
 così è rapido e **compatibile con Haiku** (`claude-haiku-4-5`), dove `effort`
 darebbe 400; `EMILIO_CLAUDE_THINK=adaptive` riaccende ragionamento+effort (più
-qualità, più lento) su Opus/Sonnet. Il **`CloudBrain`** è un backend cloud generico
+qualità, più lento) su Opus/Sonnet. Il modello Claude di **default è
+`claude-haiku-4-5`** (`EMILIO_CLAUDE_MODEL`): passando a `claude` (avvio o
+`/cervello`) si parte da Haiku; `/modello-llm` sposta a `claude-sonnet-4-6`/`claude-opus-4-8`. Il **`CloudBrain`** è un backend cloud generico
 **OpenAI-compatibile** (`/v1/chat/completions`) per **Groq/OpenRouter/OpenAI** —
 latenza minima con modelli open; env `EMILIO_CLOUD_URL` (default Groq),
 `EMILIO_CLOUD_MODEL` (default `llama-3.3-70b-versatile`; `llama-3.1-8b-instant` =
@@ -137,9 +146,16 @@ ascolta mentre ascolta). In futuro `OcchiLed` sul Pi (LED RGB indirizzabili).
 
 - **Stato d'animo**: l'LLM inizia la risposta con un tag `[neutro|felice|
   arrabbiato|sorpreso|pensa|triste]` che `agent._estrai_emozione` stacca (non si
-  pronuncia) e usa per guidare gli occhi. `RisultatoParlato.emozione`. Il parsing
-  è **tollerante** (virgolette/asterischi/aggettivi: `[molto arrabbiato]`,
-  `[arrabbiato!]`); se fra parentesi non c'è un'emozione nota, lascia il testo intatto.
+  pronuncia) e usa per guidare gli occhi **e a modulare il tono della voce
+  ElevenLabs** (`speech.EMOZIONI_VOCE`, togglabile con `EMILIO_VOCE_EMOZIONE`; la
+  voce offline resta piatta). `RisultatoParlato.emozione`. Il parsing è **tollerante**
+  (virgolette/asterischi/aggettivi: `[molto arrabbiato]`, `[arrabbiato!]`); se fra
+  parentesi non c'è un'emozione nota, lascia il testo intatto. **Ripiego senza
+  parentesi** (modelli locali deboli che le dimenticano): `_TAG_EMOZIONE_NUDO` stacca
+  comunque un'emozione NOTA scritta "nuda" (`felice:`, `(felice)`, `*felice*`, o da
+  sola), così non viene PRONUNCIATA; una frase che comincia davvero con la parola
+  ("Felice di vederti…", niente separatore) resta intatta. In streaming la decisione
+  del tag nudo aspetta che la prima parola sia delimitata (coerente col non-streaming).
 - **Si infuria**: `agent._provocato_input` rileva insulti/contraddizioni anche
   SENZA parolacce (`moderation.contiene_provocazione`, lista `lexicon.PROVOCAZIONI`)
   e gli passa `umore="arrabbiato"`; `_emozione` mette `arrabbiato` anche se la

@@ -211,7 +211,8 @@ iniziale (vedi §11).
   Reattivo: se l'input contiene un insulto/provocazione risponde sboccato (per
   collaudare censura e reattività).
 - **`ClaudeBrain`** — LLM cloud via API di **Claude (Anthropic)**; default
-  `claude-opus-4-8`, *adaptive thinking* + *effort*, memoria conversazione.
+  `claude-haiku-4-5` (TTFT basso per la voce; `/modello-llm` → sonnet/opus),
+  *thinking*/*effort* solo con `EMILIO_CLAUDE_THINK=adaptive`, memoria conversazione.
 - **`LocalBrain`** — LLM **locale via Ollama** (sul Mac, offline, senza chiavi
   cloud). Usa l'**API nativa di Ollama** (`POST /api/chat`) con `think:false` per
   disattivare il ragionamento lento dei modelli (es. Gemma 4: col thinking acceso
@@ -239,7 +240,7 @@ catalogo e permette di cambiare voce a runtime.
 
 | Profilo | Backend | Note |
 |---------|---------|------|
-| `mock` | mock | stampa soltanto (sviluppo/test) |
+| `mock` | mock | stampa soltanto (sviluppo/test) — **nascosto dal menu** `/voce`, selezionabile per nome/`EMILIO_VOICE` |
 | `offline` | pyttsx3 | TTS offline, voce di sistema italiana |
 | `veloce` | ElevenLabs | **Flash v2.5**, streaming, bassa latenza |
 | `realistico` | ElevenLabs | **Multilingual v2**, massimo realismo |
@@ -367,7 +368,7 @@ Dettaglio componenti del corpo in [`HARDWARE.md`](HARDWARE.md).
 |-----------|---------|-------------|
 | `EMILIO_LLM` | (vuoto) | cervello: `mock`/`claude`/`local` (vuoto = `claude` se `EMILIO_USE_LLM=1`, altrimenti `mock`) |
 | `EMILIO_USE_LLM` | `0` | retrocompat: `1` = claude |
-| `EMILIO_CLAUDE_MODEL` | `claude-opus-4-8` | modello Claude (ex `EMILIO_MODEL`, ancora valido come alias) |
+| `EMILIO_CLAUDE_MODEL` | `claude-haiku-4-5` | modello Claude (ex `EMILIO_MODEL`, ancora valido come alias); più capacità → `claude-sonnet-4-6`/`claude-opus-4-8` |
 | `EMILIO_MAX_TOKENS` | `220` | tetto risposta: corta = più rapida e meno crediti voce |
 | `EMILIO_STREAMING` | `1` | pipeline voce in streaming (parla a frasi); `0` = blocco unico |
 | `EMILIO_EFFORT` | `medium` | `low`/`medium`/`high` (Claude) |
@@ -381,7 +382,8 @@ Dettaglio componenti del corpo in [`HARDWARE.md`](HARDWARE.md).
 | `EMILIO_BIP_MARKER` | `[BIP]` | resa testuale del bip |
 | `EMILIO_BIP_DIR` | (pacchettizzati) | cartella dei file BIP |
 | `EMILIO_CENSOR_STYLE` | `mask` | resa testuale legacy |
-| `EMILIO_VOICE` | (vuoto) | profilo voce; se vuoto deriva da `EMILIO_TTS` |
+| `EMILIO_VOICE` | (vuoto) | profilo voce; se vuoto deriva da `EMILIO_TTS` (`mock` nascosto dal menu, valido via env) |
+| `EMILIO_VOCE_EMOZIONE` | `1` | voce ElevenLabs col tono modulato dallo stato d'animo; `0` = tono fisso |
 | `EMILIO_TTS` | `mock` | ripiego se `EMILIO_VOICE` non impostato |
 | `EMILIO_TTS_LANG` | `it` | lingua TTS |
 | `EMILIO_TTS_VOICE` | `Luca` | voce di sistema pyttsx3 (offline); ripiego Alice |

@@ -24,8 +24,9 @@ from .persona import Persona
 # Spinta una-tantum quando l'utente provoca: l'LLM tende a "calmarsi" nei turni
 # successivi, qui lo si ri-infuria per quel turno (vedi agent._provocato_input).
 _NUDGE_ARRABBIATO = (
-    "\n\n(L'utente ti ha appena offeso o contraddetto: rispondi INFURIATO, "
-    "acido e sboccato — parolacce e bestemmie venete a raffica, senza trattenerti.)"
+    "\n\n(L'utente ti ha appena offeso o contraddetto: rispondi INFURIATO, acido e "
+    "tagliente, e infila SEMPRE almeno una vera bestemmia religiosa veneta "
+    "(dio/madonna/cristo + animale o schifezza) IN MEZZO alla frase, senza trattenerti.)"
 )
 
 
@@ -137,7 +138,7 @@ class ClaudeBrain(Brain):
     def __init__(
         self,
         persona: Persona | None = None,
-        model: str = "claude-opus-4-8",
+        model: str = "claude-haiku-4-5",
         max_tokens: int = 800,
         effort: str = "medium",
         think: str = "",
